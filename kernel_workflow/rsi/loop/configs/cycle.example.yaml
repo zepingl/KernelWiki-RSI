@@ -1,0 +1,24 @@
+schema_version: 1
+pool: /absolute/path/to/new-schema2-pool
+rounds: 2
+discovery:
+  - /absolute/path/to/dsa-decode-online.yaml
+  - /absolute/path/to/dsa-prefill-online.yaml
+  - /absolute/path/to/dsa-sparse-mla-online.yaml
+  - /absolute/path/to/mxfp4-moe-online.yaml
+holdout:
+  - /absolute/path/to/mla-bmm-online.yaml
+  - /absolute/path/to/qkv-a-proj-online.yaml
+  - /absolute/path/to/o-proj-online.yaml
+max_candidates: 4
+investigation:
+  max_steps: 2
+  model_calls: 0
+agent_timeout_seconds: 300
+limits:
+  direction_units: null
+  agent_calls: null
+  gpus: null
+  wallclock_seconds: null
+calibration: null
+approval: null

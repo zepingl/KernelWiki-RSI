@@ -826,6 +826,153 @@ Return ONLY the structured JSON the role file specifies (a StructuredOutput tool
 // ===========================================================================
 // PHASE: Setup
 // ===========================================================================
+async function optimizeDirections(directions, context) {
+  const { CANONICAL, EVAL_DIR, round, COMMANDMENT, BASELINE_PER_CASE, profileSummary, history,
+    KERNEL_KNOWLEDGE_DIR, KK_OPERATOR, KK_LANGUAGE, KK_REFS, GFX, DEVICE_TARGET,
+    PHYSICAL_CU_COUNT, ROOFLINE_STATUS, KB_INPUTS } = context;
+  const directionAgent = context.rsi ? (prompt, options) => agent(prompt, { ...options, model: 'claude-opus-5.5' }) : agentT;
+  return await pipeline(
+    directions,
+    (d) => {
+      const isDeep = d.specialty === 'deep_explore';
+      // deep_explore reads its own role (broad authority + own iteration loop); specialists read engineer.md.
+      const readLine = isDeep
+        ? `Then Read ${WORKFLOW_DIR}/roles/deep_engineer.md and the knowledge files under ${WORKFLOW_DIR}/knowledge/ ` +
+          (USE_LEARNED_READ ? '' : `— EXCLUDING knowledge/learned/, which is off for this run: do not open ` +
+            `INDEX.md or any card there. `) +
+          `(you have broad authority — combine algorithm + memory + compute + host_runtime levers in one ` +
+          `coherent rewrite), and follow them. You MAY edit ANY modifiable source (kernel + Python wrapper ` +
+          `+ C++ binding), not just focus_files. Run your OWN multi-iteration measure→(self-)profile→rewrite ` +
+          `loop and push to the TARGET; keep the best correct version.`
+        : `Then Read ${WORKFLOW_DIR}/roles/engineer.md and ${WORKFLOW_DIR}/knowledge/self_monitoring.md and the ` +
+          `knowledge files for your specialty, and follow them.`;
+      return directionAgent(
+      `You are Engineer ${d.id} (specialty=${d.specialty}) for round ${round}.
+First create YOUR private workspace, then optimize.
+\`\`\`bash
+# Issue #429: ALWAYS use materialize_workspace.sh — do NOT inline tar/cp. Agents that omitted
+# --exclude='*.so' previously copied multi-GiB aiter/jit/*.so into every engineer/verify clone.
+# The script excludes nested *.so/*.o and aiter/jit, preserves symlinks (never -h), and may
+# share an immutable aiter tree via --link-aiter under EVAL_DIR/_shared. Candidate builds still
+# use per-workspace .torch_ext via gpu_lock.sh (isolation unchanged).
+mkdir -p ${d.out_dir}
+bash ${WORKFLOW_DIR}/scripts/materialize_workspace.sh \\
+  --src ${CANONICAL} --dst ${d.out_dir}/workspace \\
+  --shared-root ${EVAL_DIR}/_shared --link-aiter
+\`\`\`
+${readLine} If KK_OPERATOR is non-empty, also consult the operator/language SOTA cards under
+KERNEL_KNOWLEDGE_DIR per your role's "operator/language SOTA knowledge (REFERENCE ONLY)" section
+(facts/how-to only; measure everything; never go below baseline).
+Save best_patch.diff via \`cd <KERNEL_PATH> && git diff > ${d.out_dir}/best_patch.diff\` when geomean>${CANDIDATE_FLOOR_TXT}.
+
+## Inputs
+${cfg({
+        SPECIALTY: d.specialty,
+        DIRECTION: { id: d.id, title: d.title, focus_files: d.focus_files || [], expected_speedup: d.expected_speedup, prompt: d.prompt },
+        ...(isDeep ? { TARGET: d.expected_speedup ? `reach ${d.expected_speedup}x (or ~90% of the roofline ceiling), whichever is the harder bar` : 'reach ~90% of the roofline ceiling' } : {}),
+        KERNEL_PATH: `${d.out_dir}/workspace`,
+        OUTPUT_DIR: d.out_dir,
+        CANONICAL, GPU_ID: d.gpu_id, SKILL_DIR: WORKFLOW_DIR, COMMANDMENT,
+        codebase_context: `${EVAL_DIR}/codebase_context.md`,
+        profiling_summary: profileSummary ? profileSummary.summary_path : '',
+        baseline_per_case: BASELINE_PER_CASE,
+        INSIGHTS: history.insights,
+        KERNEL_KNOWLEDGE_DIR, KK_OPERATOR, KK_LANGUAGE,
+        KK_REFS: (d.kk_refs && d.kk_refs.length ? d.kk_refs : KK_REFS),
+        GFX, DEVICE_TARGET, PHYSICAL_CU_COUNT, ROOFLINE_STATUS,
+        ...KB_INPUTS,
+      })}
+
+Return ONLY the worker_result.json structure as StructuredOutput.` +
+      // Built inline, not via roleAgent(), so the injection has to be appended here too.
+      expertSkillsBlock(isDeep ? 'deep_engineer' : 'engineer'),
+      { phase: 'Optimize', label: `${isDeep ? 'deep' : 'eng'} ${d.id}:${d.specialty}`, schema: ENG_SCHEMA }
+    ).then((eng) => ({ d, eng }));
+    },
+
+    async (prev) => {
+      const { d, eng } = prev;
+      const patch = `${d.out_dir}/best_patch.diff`;
+      if (context.rsi) {
+        const evidence = await rsiBoundary({ kind: 'candidate_verify', stage: 'generated',
+          workspaces: { parent: CANONICAL, candidate: `${d.out_dir}/workspace` },
+          artifacts: [patch], engineer: eng, invocation: eng && eng.__rsiInvocation });
+        return { d, eng, ver: null, patch, evidence };
+      }
+      // Harvest is MEASUREMENT-anchored, not return-value-anchored. An engineer only writes
+      // best_patch.diff when it beat the floor (the Optimize prompt: "Save best_patch.diff ... when
+      // geomean>CANDIDATE_FLOOR"), so a lost/failed StructuredOutput does NOT imply there is no winning patch: an
+      // engineer that died, timed out, or mis-returned can still have left an applies-clean above-floor diff
+      // on disk (observed in a bake-off: a 1.56x Triton patch was silently dropped because its
+      // worker_result.json/StructuredOutput never came back). The only return we can TRUST to suppress
+      // a patch is a clean below-floor one — the engineer ran, measured, honestly reported <=the floor, and
+      // therefore wrote no patch. In every other case (null/failed return, OR a claimed above-floor one) a patch
+      // MIGHT be on disk, so we hand the path to verify and let the oracle be the source of truth. We
+      // cannot stat the file from the workflow sandbox, so the "is there actually a patch" decision is
+      // delegated to verify, which returns apply_failed on an absent/empty patch — dropped by the
+      // `verified` filter below, i.e. the same outcome as skipping, but with no false loss.
+      // An invalid/missing source verdict must reach Verify, even after an empty-patch return.
+      const trustworthyBelowBaseline = eng && eng.status !== 'failed' && !(primSpeedup(eng) > CANDIDATE_FLOOR) &&
+        eng.status !== 'invalid_measurement' && eng.measurement_valid === true;
+      if (trustworthyBelowBaseline) {
+        return { d, eng, ver: null };
+      }
+      const recovered = !eng || eng.status === 'failed';
+      if (recovered) log(`Round ${round} dir ${d.id}: engineer return ${eng ? 'failed' : 'missing'} — ` +
+        `sending best_patch.diff to verify anyway (oracle decides).`);
+      const ver = await directionAgent(
+        roleAgent('verify_engineer', 'verify', 'Independently re-measure this candidate patch.', {
+          CANONICAL, PATCH: patch, VERIFY_DIR: `${d.out_dir}/verify`,
+          ENGINEER_WORKSPACE: `${d.out_dir}/workspace`,
+          EVAL_DIR, WORKFLOW_DIR, GPU_ID: d.gpu_id, SKILL_DIR: WORKFLOW_DIR, COMMANDMENT, BASELINE_PER_CASE,
+          ...(HARNESS_ADDENDUM ? { HARNESS_ADDENDUM } : {}),
+          ...(REQUIRE_GRAPH_CAPTURE ? { REQUIRE_GRAPH_CAPTURE: '1' } : {}),
+        }),
+        { phase: 'Verify', label: `verify ${d.id}${recovered ? ' (recovered)' : ''}`, schema: VERIFY_SCHEMA }
+      );
+      if (typeof rsiBoundary === 'function') await rsiBoundary({ kind: 'candidate_verify', stage: 'legacy_verify',
+        workspaces: { parent: CANONICAL, candidate: `${d.out_dir}/workspace`, verified: `${d.out_dir}/verify` },
+        artifacts: [patch], engineer: eng, verifier: ver,
+        invocation: ver && ver.__rsiInvocation, measurement_authority: 'agent_claim' });
+      return { d, eng, ver, patch };
+    }
+  );
+}
+
+if (A.rsi_generation) {
+  if (typeof rsiBoundary !== 'function') throw new Error('RSI generation requires durable host capture');
+  const context = A.rsi_context;
+  if (!context || !context.CANONICAL || !context.EVAL_DIR || !context.COMMANDMENT ||
+      !['normal', 'deep_explore'].includes(A.rsi_generation)) throw new Error('invalid RSI generation context');
+  USE_LEARNED_READ = false;
+  const plan = await agent(
+    roleAgent('tech_lead', 'plan_round',
+      'Plan exactly ONE direction for this fixed generation request. Use only the supplied parent and branch context. ' +
+      'Do not access other branches, warm starts, or shared learned memory. Do not write knowledge. ' +
+      (A.rsi_generation === 'deep_explore' ? 'Use specialty deep_explore.' : 'Use an ordinary specialist, not deep_explore.'),
+      { ...context, ROUND: 1, BUDGET_REMAINING: A.rsi_generation === 'deep_explore' ? 2 : 1,
+        LEARNED_KB: 'off', HISTORY: context.history }),
+    { phase: 'Optimize', label: 'rsi:plan', schema: PLAN_SCHEMA, model: 'claude-opus-5.5' });
+  const dispatch = await rsiBoundary({ kind: 'plan_dispatch', plan, input: context,
+    invocation: plan && plan.__rsiInvocation, workspaces: { parent: context.CANONICAL } });
+  if (!plan || plan.stop || plan.directions.length !== 1) {
+    return { status: 'generation_failed', plan, dispatch, reason: 'exactly one direction is required' };
+  }
+  const direction = plan.directions[0];
+  if ((direction.specialty === 'deep_explore') !== (A.rsi_generation === 'deep_explore')) {
+    return { status: 'generation_failed', plan, dispatch, reason: 'generation mode mismatch' };
+  }
+  const directions = [{ ...direction, id: direction.id || 'rsi-direction',
+    gpu_id: A.gpu_ids, out_dir: context.EVAL_DIR + '/direction' }];
+  const results = await optimizeDirections(directions, { ...context, rsi: true, round: 1,
+    history: context.history || { insights: [] }, KB_INPUTS: { LEARNED_KB: 'off' } });
+  const result = results[0];
+  return { status: result ? 'generated' : 'generation_failed', plan, dispatch, result,
+    candidate_workspace: context.EVAL_DIR + '/direction/workspace',
+    candidate_patch: context.EVAL_DIR + '/direction/best_patch.diff',
+    verification: 'host_evaluator_required' };
+}
+
 phase('Setup');
 const setup = await agentT(
   roleAgent('director', 'setup', 'Build the isolated evaluation environment.', {
@@ -1434,6 +1581,9 @@ while (!skipLoop && dispatched < BUDGET && noImprove < MAX_NO_IMPROVE) {
     roleAgent('tech_lead', 'plan_round', 'Decide this round\'s orthogonal directions (or stop).',
       planInputs(false)),
     { phase: 'Optimize', label: `tech_lead:plan r${round}`, schema: PLAN_SCHEMA });
+  if (typeof rsiBoundary === 'function') await rsiBoundary({ kind: 'plan_dispatch', stage: 'original_plan',
+    round, plan, input: planInputs(false), invocation: plan && plan.__rsiInvocation,
+    workspaces: { parent: CANONICAL } });
 
   // NO EARLY STOP: keep refusing while the window is materially unspent. This used to refuse ONCE,
   // on the reasoning that a role repeating "stop" has run out of ideas. Measured at a 2h budget that
@@ -1487,106 +1637,18 @@ while (!skipLoop && dispatched < BUDGET && noImprove < MAX_NO_IMPROVE) {
   // and charge DEEP_COST against the budget. Otherwise each specialist direction costs 1.
   const deepDir = directions.find(d => d.specialty === 'deep_explore');
   if (deepDir) directions = [deepDir];
+  if (typeof rsiBoundary === 'function') await rsiBoundary({ kind: 'plan_dispatch', stage: 'actual_dispatch',
+    round, plan, directions, workspaces: { parent: CANONICAL } });
   const roundCost = directions.reduce((s, d) => s + (d.specialty === 'deep_explore' ? DEEP_COST : 1), 0);
   dispatched += roundCost;
   log(`Round ${round}: ${directions.length} direction(s) [${directions.map(d => d.specialty).join(', ')}], cost ${roundCost}, budget ${dispatched}/${BUDGET}`);
 
   // --- (b,c) Optimize -> Verify, pipelined per direction ----------------
-  const results = await pipeline(
-    directions,
-    (d) => {
-      const isDeep = d.specialty === 'deep_explore';
-      // deep_explore reads its own role (broad authority + own iteration loop); specialists read engineer.md.
-      const readLine = isDeep
-        ? `Then Read ${WORKFLOW_DIR}/roles/deep_engineer.md and the knowledge files under ${WORKFLOW_DIR}/knowledge/ ` +
-          (USE_LEARNED_READ ? '' : `— EXCLUDING knowledge/learned/, which is off for this run: do not open ` +
-            `INDEX.md or any card there. `) +
-          `(you have broad authority — combine algorithm + memory + compute + host_runtime levers in one ` +
-          `coherent rewrite), and follow them. You MAY edit ANY modifiable source (kernel + Python wrapper ` +
-          `+ C++ binding), not just focus_files. Run your OWN multi-iteration measure→(self-)profile→rewrite ` +
-          `loop and push to the TARGET; keep the best correct version.`
-        : `Then Read ${WORKFLOW_DIR}/roles/engineer.md and ${WORKFLOW_DIR}/knowledge/self_monitoring.md and the ` +
-          `knowledge files for your specialty, and follow them.`;
-      return agentT(
-      `You are Engineer ${d.id} (specialty=${d.specialty}) for round ${round}.
-First create YOUR private workspace, then optimize.
-\`\`\`bash
-# Issue #429: ALWAYS use materialize_workspace.sh — do NOT inline tar/cp. Agents that omitted
-# --exclude='*.so' previously copied multi-GiB aiter/jit/*.so into every engineer/verify clone.
-# The script excludes nested *.so/*.o and aiter/jit, preserves symlinks (never -h), and may
-# share an immutable aiter tree via --link-aiter under EVAL_DIR/_shared. Candidate builds still
-# use per-workspace .torch_ext via gpu_lock.sh (isolation unchanged).
-mkdir -p ${d.out_dir}
-bash ${WORKFLOW_DIR}/scripts/materialize_workspace.sh \\
-  --src ${CANONICAL} --dst ${d.out_dir}/workspace \\
-  --shared-root ${EVAL_DIR}/_shared --link-aiter
-\`\`\`
-${readLine} If KK_OPERATOR is non-empty, also consult the operator/language SOTA cards under
-KERNEL_KNOWLEDGE_DIR per your role's "operator/language SOTA knowledge (REFERENCE ONLY)" section
-(facts/how-to only; measure everything; never go below baseline).
-Save best_patch.diff via \`cd <KERNEL_PATH> && git diff > ${d.out_dir}/best_patch.diff\` when geomean>${CANDIDATE_FLOOR_TXT}.
-
-## Inputs
-${cfg({
-        SPECIALTY: d.specialty,
-        DIRECTION: { id: d.id, title: d.title, focus_files: d.focus_files || [], expected_speedup: d.expected_speedup, prompt: d.prompt },
-        ...(isDeep ? { TARGET: d.expected_speedup ? `reach ${d.expected_speedup}x (or ~90% of the roofline ceiling), whichever is the harder bar` : 'reach ~90% of the roofline ceiling' } : {}),
-        KERNEL_PATH: `${d.out_dir}/workspace`,
-        OUTPUT_DIR: d.out_dir,
-        CANONICAL, GPU_ID: d.gpu_id, SKILL_DIR: WORKFLOW_DIR, COMMANDMENT,
-        codebase_context: `${EVAL_DIR}/codebase_context.md`,
-        profiling_summary: profileSummary ? profileSummary.summary_path : '',
-        baseline_per_case: BASELINE_PER_CASE,
-        INSIGHTS: history.insights,
-        KERNEL_KNOWLEDGE_DIR, KK_OPERATOR, KK_LANGUAGE,
-        KK_REFS: (d.kk_refs && d.kk_refs.length ? d.kk_refs : KK_REFS),
-        GFX, DEVICE_TARGET, PHYSICAL_CU_COUNT, ROOFLINE_STATUS,
-        ...KB_INPUTS,
-      })}
-
-Return ONLY the worker_result.json structure as StructuredOutput.` +
-      // Built inline, not via roleAgent(), so the injection has to be appended here too.
-      expertSkillsBlock(isDeep ? 'deep_engineer' : 'engineer'),
-      { phase: 'Optimize', label: `${isDeep ? 'deep' : 'eng'} ${d.id}:${d.specialty}`, schema: ENG_SCHEMA }
-    ).then((eng) => ({ d, eng }));
-    },
-
-    (prev) => {
-      const { d, eng } = prev;
-      const patch = `${d.out_dir}/best_patch.diff`;
-      // Harvest is MEASUREMENT-anchored, not return-value-anchored. An engineer only writes
-      // best_patch.diff when it beat the floor (the Optimize prompt: "Save best_patch.diff ... when
-      // geomean>CANDIDATE_FLOOR"), so a lost/failed StructuredOutput does NOT imply there is no winning patch: an
-      // engineer that died, timed out, or mis-returned can still have left an applies-clean above-floor diff
-      // on disk (observed in a bake-off: a 1.56x Triton patch was silently dropped because its
-      // worker_result.json/StructuredOutput never came back). The only return we can TRUST to suppress
-      // a patch is a clean below-floor one — the engineer ran, measured, honestly reported <=the floor, and
-      // therefore wrote no patch. In every other case (null/failed return, OR a claimed above-floor one) a patch
-      // MIGHT be on disk, so we hand the path to verify and let the oracle be the source of truth. We
-      // cannot stat the file from the workflow sandbox, so the "is there actually a patch" decision is
-      // delegated to verify, which returns apply_failed on an absent/empty patch — dropped by the
-      // `verified` filter below, i.e. the same outcome as skipping, but with no false loss.
-      // An invalid/missing source verdict must reach Verify, even after an empty-patch return.
-      const trustworthyBelowBaseline = eng && eng.status !== 'failed' && !(primSpeedup(eng) > CANDIDATE_FLOOR) &&
-        eng.status !== 'invalid_measurement' && eng.measurement_valid === true;
-      if (trustworthyBelowBaseline) {
-        return { d, eng, ver: null };
-      }
-      const recovered = !eng || eng.status === 'failed';
-      if (recovered) log(`Round ${round} dir ${d.id}: engineer return ${eng ? 'failed' : 'missing'} — ` +
-        `sending best_patch.diff to verify anyway (oracle decides).`);
-      return agentT(
-        roleAgent('verify_engineer', 'verify', 'Independently re-measure this candidate patch.', {
-          CANONICAL, PATCH: patch, VERIFY_DIR: `${d.out_dir}/verify`,
-          ENGINEER_WORKSPACE: `${d.out_dir}/workspace`,
-          EVAL_DIR, WORKFLOW_DIR, GPU_ID: d.gpu_id, SKILL_DIR: WORKFLOW_DIR, COMMANDMENT, BASELINE_PER_CASE,
-          ...(HARNESS_ADDENDUM ? { HARNESS_ADDENDUM } : {}),
-          ...(REQUIRE_GRAPH_CAPTURE ? { REQUIRE_GRAPH_CAPTURE: '1' } : {}),
-        }),
-        { phase: 'Verify', label: `verify ${d.id}${recovered ? ' (recovered)' : ''}`, schema: VERIFY_SCHEMA }
-      ).then((ver) => ({ d, eng, ver, patch }));
-    }
-  );
+  const results = await optimizeDirections(directions, {
+    CANONICAL, EVAL_DIR, round, COMMANDMENT, BASELINE_PER_CASE, profileSummary, history,
+    KERNEL_KNOWLEDGE_DIR, KK_OPERATOR, KK_LANGUAGE, KK_REFS, GFX, DEVICE_TARGET,
+    PHYSICAL_CU_COUNT, ROOFLINE_STATUS, KB_INPUTS
+  });
 
   const clean = results.filter(Boolean);
   const verified = clean.filter(r => r.ver && says(r.ver.status, 'verified') &&
@@ -1644,7 +1706,7 @@ Return ONLY the worker_result.json structure as StructuredOutput.` +
 
   // --- (e) Commit the winner into the canonical workspace ---------------
   if (improved) {
-    await agentT(
+    const commit = await agentT(
       `You are the TechLead committing round ${round}'s winning patch into the canonical workspace.
 \`\`\`bash
 export GIT_PAGER=cat GIT_TERMINAL_PROMPT=0 GIT_EDITOR=true
@@ -1665,6 +1727,9 @@ check (cd ${CANONICAL} && the COMMANDMENT CORRECTNESS cmd via gpu_lock); only re
 it still passes. (When a clean \`git apply\`/\`--3way\` succeeds, correctness was already verified and a
 re-check is not required.) Return JSON {committed, current_best_diff, note}.`,
       { phase: 'Merge', label: `commit r${round}`, schema: COMMIT_SCHEMA });
+    if (typeof rsiBoundary === 'function') await rsiBoundary({ kind: 'commit_director', stage: 'legacy_commit',
+      round, commit, winner, invocation: commit && commit.__rsiInvocation,
+      workspaces: { installed: CANONICAL }, director_status: 'pending' });
     cumulative = winner.geomean;
     bestPerCase = winner.per_case && winner.per_case.length ? winner.per_case : bestPerCase;
     finalWinner = winner;
@@ -1816,6 +1881,9 @@ const validation = await agentT(
     BASELINE_TIMING: BASELINE_PER_CASE,
   }),
   { phase: 'Validate', label: 'director:validate', schema: VALIDATE_SCHEMA });
+if (typeof rsiBoundary === 'function') await rsiBoundary({ kind: 'commit_director', stage: 'legacy_director',
+  validation, invocation: validation && validation.__rsiInvocation,
+  workspaces: { canonical: CANONICAL, original: KERNEL_PATH_ORIG }, measurement_authority: 'agent_claim' });
 
 const finalGeomean = validation ? validation.director_verified_speedup_geomean : cumulative;
 // PRIMARY headline: the time-weighted speedup when workload-aligned, else the geomean (unchanged).

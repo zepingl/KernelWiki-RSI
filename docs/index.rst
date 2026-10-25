@@ -36,4 +36,9 @@ The GEAK public repository is located at `AMD-AGI/GEAK <https://github.com/AMD-A
 For information on contributing to the GEAK code base, see the
 `CONTRIBUTING guide <https://github.com/AMD-AGI/GEAK/blob/main/CONTRIBUTING.md>`_.
 
+KernelWiki-RSI v1 adds a guarded knowledge-policy evolution loop with replay
+and reverse investigation. See the
+`engineering guide <kernelwiki-rsi-v1.html>`_ and
+`first real Opus experiment <kernelwiki-rsi-v1-experiment.html>`_.
+
 GEAK is released under the Apache License 2.0. For details, see the :doc:`License <license>` page.

@@ -1,0 +1,54 @@
+name: KernelWiki-RSI paired SDK checks
+
+on:
+  workflow_dispatch:
+    inputs:
+      kernelwiki_ref:
+        description: Immutable 40-character commit of the matching KernelWiki SDK
+        required: true
+        type: string
+  pull_request:
+    paths:
+      - 'kernel_workflow/rsi/**'
+      - 'kernel_workflow/kernel_lane.js'
+      - 'kernel_workflow/scripts/gpu_lock.sh'
+      - 'kernel_workflow/scripts/workspace_sources.py'
+      - 'kernel_workflow/scripts/materialize_workspace.sh'
+      - 'interface/runtime/engine/**'
+      - '.github/workflows/ci-kernelwiki-rsi.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  paired-sdk:
+    runs-on: ubuntu-latest
+    env:
+      KERNELWIKI_REF: ${{ inputs.kernelwiki_ref || vars.KERNELWIKI_RSI_REF }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: GEAK
+      - name: Require an immutable matching SDK revision
+        shell: bash
+        run: '[[ "$KERNELWIKI_REF" =~ ^[0-9a-f]{40}$ ]]'
+      - uses: actions/checkout@v4
+        with:
+          repository: yueliu14/KernelWiki
+          ref: ${{ env.KERNELWIKI_REF }}
+          path: KernelWiki
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: python -m pip install pytest PyYAML
+      - name: Real paired SDK and fake-worker offline checks
+        env:
+          PYTHONPATH: ${{ github.workspace }}/KernelWiki:${{ github.workspace }}/GEAK
+        run: |
+          python -m pytest -q KernelWiki/tests KernelWiki/kernelwiki/_store/tests \
+            GEAK/kernel_workflow/rsi \
+            GEAK/kernel_workflow/scripts/tests/test_workspace_sources.py
+          node GEAK/interface/runtime/engine/selftest.mjs

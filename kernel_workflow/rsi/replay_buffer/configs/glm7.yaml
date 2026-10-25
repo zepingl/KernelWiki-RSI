@@ -1,0 +1,34 @@
+campaigns: /shared_nfs/zepingl/geak_audit/checks/seven_kernel_long_horizon_20261009/from_zero_20261010/campaigns.json
+tasks:
+  glm52_dsa_indexer_decode_task: dsa-decode
+  glm52_dsa_indexer_prefill_task: dsa-prefill
+  glm52_dsa_sparse_mla_task: dsa-sparse-mla
+  glm52_mxfp4_fused_moe_task: mxfp4-moe
+  glm52_mla_absorb_bmm_task: mla-bmm
+  glm52_bf16_qkv_a_proj_task: qkv-a-proj
+  glm52_bf16_o_proj_task: o-proj
+excluded_tasks:
+  - glm52_add_rmsnorm_quant_task
+  - glm52_bf16_indexer_wk_task
+  - glm52_bf16_indexer_wq_task
+  - glm52_bf16_moe_router_task
+  - glm52_dsa_indexer_prefill_score_topk_task
+  - glm52_dsa_indexer_score_topk_task
+  - glm52_dsa_indexer_topk_task
+  - glm52_sparse_mla_prefill_task
+splits:
+  train: [dsa-decode, dsa-prefill, dsa-sparse-mla]
+  validation: [mxfp4-moe]
+  test: [mla-bmm, qkv-a-proj, o-proj]
+budgets: [1, 2, 4, 6]
+objective:
+  beta_cost: 0.01
+  beta_parallel: 0
+states:
+  dsa-decode: {gfx: gfx950}
+  dsa-prefill: {gfx: gfx950}
+  dsa-sparse-mla: {gfx: gfx950}
+  mxfp4-moe: {gfx: gfx950}
+  mla-bmm: {gfx: gfx950}
+  qkv-a-proj: {gfx: gfx950}
+  o-proj: {gfx: gfx950}

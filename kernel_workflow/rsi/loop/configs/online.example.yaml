@@ -1,0 +1,22 @@
+kernel: dsa-decode
+workspace: /absolute/path/to/kernel-workspace
+state: {operator: sparse_attention_nsa, backend: triton, gfx: gfx950}
+source_paths: [kernel_src]
+commandment: /absolute/path/to/COMMANDMENT.md
+codebase_context: /absolute/path/to/codebase_context.md
+gpu_ids: ['0', '1']
+execution:
+  kind: coordinated
+  wallclock_limit_seconds: 1800
+budget: 6
+mode: normal
+runtime:
+  node: /absolute/path/to/node
+  claude: /absolute/path/to/claude
+  timeout_seconds: 1200
+evaluator:
+  command: [python3, evaluate.py, '--gpu-id', '{gpu_id}']
+  result_file: ut_result.json
+  contract_files: [evaluate.py, unittest.py, cases.json]
+  case_weights: {replace_with_every_actual_case: 1}
+  timeout_seconds: 600

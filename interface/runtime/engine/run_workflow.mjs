@@ -31,6 +31,7 @@ import { extractJson, validate, schemaInstruction } from './schema.mjs';
 import { defaultConcurrency } from './backends/base.mjs';
 import { loadRegistry, resolveSelection, neutralizeForBackend } from './config.mjs';
 import { makeGenericBackend } from './backends/generic.mjs';
+import { createRSIRecorder } from './rsi_boundary.mjs';
 
 // ---------------------------------------------------------------------------
 // CLI parsing
@@ -155,19 +156,30 @@ export function createRuntime({
       let lastErr;
       const attempts = schema ? SCHEMA_RETRIES + 1 : 1;
       for (let i = 0; i < attempts; i++) {
-        const { text } = await backend.runAgent({
+        const recorder = agentOpts.rsiRecorder;
+        const invocation = recorder ? await recorder.beginAgent(fullPrompt, agentOpts, i + 1) : null;
+        let response;
+        try {
+          response = await backend.runAgent({
           prompt: fullPrompt,
           label,
           cwd: agentOpts.cwd,
           env: agentOpts.env,
           model: agentOpts.model,
           timeoutMs: agentTimeoutMs,
-        });
+          });
+        } catch (error) {
+          if (recorder) await recorder.endAgent(invocation, { status: 'failed', error: String(error) });
+          throw error;
+        }
+        const { text } = response;
+        if (recorder) await recorder.endAgent(invocation, { status: 'returned', response });
         if (!schema) return text;
         try {
           const obj = extractJson(text);
           const v = validate(obj, schema);
           if (!v.ok) throw new Error(`schema mismatch: ${v.errors.slice(0, 3).join('; ')}`);
+          if (invocation) Object.defineProperty(obj, '__rsiInvocation', { value: invocation });
           return obj;
         } catch (e) {
           lastErr = e;
@@ -230,13 +242,16 @@ export function createRuntime({
     let fn;
     try {
       fn = new AsyncFunction(
-        'agent', 'parallel', 'pipeline', 'phase', 'log', 'workflow', 'args', 'budget',
+        'agent', 'parallel', 'pipeline', 'phase', 'log', 'workflow', 'args', 'budget', 'rsiBoundary',
         body
       );
     } catch (e) {
       throw new Error(`failed to compile workflow ${absScriptPath}: ${e.message}`);
     }
-    return fn(agent, parallel, pipeline, phase, log, makeWorkflow(depth), scriptArgs, budget);
+    const recorder = scriptArgs.rsi_capture ? createRSIRecorder(scriptArgs.rsi_capture) : null;
+    const capturedAgent = recorder ? (prompt, options = {}) => agent(prompt, { ...options, rsiRecorder: recorder }) : agent;
+    return fn(capturedAgent, parallel, pipeline, phase, log, makeWorkflow(depth), scriptArgs, budget,
+      recorder ? value => recorder.boundary(value) : null);
   }
 
   return { agent, parallel, pipeline, phase, log, budget, makeWorkflow, runScript, state };

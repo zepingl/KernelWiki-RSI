@@ -52,6 +52,37 @@ trap _check_sources_on_exit EXIT
 LOCK_DIR="${KERNEL_EXTRACT_LOCK_DIR:-/tmp/team_gpu_locks}"
 mkdir -p "$LOCK_DIR"
 
+if [ -n "${NRC_RUN_ID:-}" ]; then
+    if [ -z "${NRC_NODE:-}" ] || [ -z "${NRC_LOGICAL_GPU_IDS:-}" ] ||
+       [ -z "${NRC_PHYSICAL_GPU_PCI:-}" ] || [ -z "${HIP_VISIBLE_DEVICES:-}" ] ||
+       [ -n "${ROCR_VISIBLE_DEVICES:-}${CUDA_VISIBLE_DEVICES:-}" ] ||
+       [[ ! "$GPU_SPEC" =~ ^[0-9]+(,[0-9]+)*$ ]]; then
+        echo "ERROR: gpu_lock.sh requires an intact NRC allocation and unchanged GPU visibility." >&2
+        exit 1
+    fi
+    IFS=, read -r -a NRC_GPU_LOGICAL <<< "$NRC_LOGICAL_GPU_IDS"
+    IFS=, read -r -a NRC_GPU_PCI <<< "$NRC_PHYSICAL_GPU_PCI"
+    IFS=, read -r -a NRC_GPU_VISIBLE <<< "$HIP_VISIBLE_DEVICES"
+    if [ "${#NRC_GPU_LOGICAL[@]}" -ne "${#NRC_GPU_PCI[@]}" ] ||
+       [ "${#NRC_GPU_LOGICAL[@]}" -ne "${#NRC_GPU_VISIBLE[@]}" ]; then
+        echo "ERROR: gpu_lock.sh NRC logical, physical and visible device counts differ." >&2
+        exit 1
+    fi
+    for logical_index in "${!NRC_GPU_LOGICAL[@]}"; do
+        if [ "${NRC_GPU_LOGICAL[$logical_index]}" != "$logical_index" ] ||
+           [[ ! "${NRC_GPU_PCI[$logical_index]}" =~ ^[0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-7]$ ]]; then
+            echo "ERROR: gpu_lock.sh NRC device order is invalid." >&2
+            exit 1
+        fi
+    done
+    for requested_gpu in ${GPU_SPEC//,/ }; do
+        case ",$NRC_LOGICAL_GPU_IDS," in
+            *",$requested_gpu,"*) ;;
+            *) echo "ERROR: gpu_lock.sh requested a GPU outside its NRC allocation." >&2; exit 1 ;;
+        esac
+    done
+fi
+
 # ---- Allocation fence ---------------------------------------------------------------------------
 # GEAK_GPU_ALLOWED (comma list) is the set of GPUs the CALLER was actually allocated. When it is
 # set, a <gpu_spec> naming anything outside it is refused. Unset = no fence, so every existing
@@ -99,10 +130,18 @@ fi
 # another GPU when one is busy, single-GPU mode has nowhere to step and so fails loudly instead.
 _gpu_is_idle() {
     local id="$1" dev busy vram
-    dev="$(readlink -f "/sys/class/drm/renderD$((128 + 8 * id))/device" 2>/dev/null)" || return 0
-    [ -r "$dev/gpu_busy_percent" ] || return 0   # cannot tell -> do not block the run
-    busy="$(cat "$dev/gpu_busy_percent" 2>/dev/null || echo 0)"
-    vram="$(( $(cat "$dev/mem_info_vram_used" 2>/dev/null || echo 0) / 1048576 ))"
+    if [ -n "${NRC_RUN_ID:-}" ]; then
+        dev="/sys/bus/pci/devices/${NRC_GPU_PCI[$id]}"
+        busy="$(cat "$dev/gpu_busy_percent" 2>/dev/null)" || return 1
+        vram="$(cat "$dev/mem_info_vram_used" 2>/dev/null)" || return 1
+        [[ "$busy" =~ ^[0-9]+$ && "$vram" =~ ^[0-9]+$ ]] || return 1
+        vram="$((vram / 1048576))"
+    else
+        dev="$(readlink -f "/sys/class/drm/renderD$((128 + 8 * id))/device" 2>/dev/null)" || return 0
+        [ -r "$dev/gpu_busy_percent" ] || return 0   # cannot tell -> do not block the run
+        busy="$(cat "$dev/gpu_busy_percent" 2>/dev/null || echo 0)"
+        vram="$(( $(cat "$dev/mem_info_vram_used" 2>/dev/null || echo 0) / 1048576 ))"
+    fi
     [ "${busy:-0}" -le "${GEAK_GPU_MAX_BUSY_PCT:-5}" ] && [ "$vram" -le "${GEAK_GPU_MAX_VRAM_MB:-1024}" ]
 }
 
@@ -165,7 +204,7 @@ LOCK_FILE="${LOCK_DIR}/gpu_${GPU_ID}.lock"
 # task-count explosion -> whole-box hang (observed: 561 enumerators / 37k tasks on a swap=0 box).
 # We kill ONLY ppid==1 (parent already dead) AND >60s old -> a live, in-use enumerator is never
 # touched. Best-effort; must never fail the wrapper (set -e). Opt out with KERNEL_ENV_SKIP_ENUM_REAP=1.
-if [ "${KERNEL_ENV_SKIP_ENUM_REAP:-0}" != "1" ]; then
+if [ -z "${NRC_RUN_ID:-}" ] && [ "${KERNEL_ENV_SKIP_ENUM_REAP:-0}" != "1" ]; then
     for _p in $(pgrep -f rocm_agent_enumerator 2>/dev/null || true); do
         _pp="$(ps -o ppid= -p "$_p" 2>/dev/null | tr -d ' ' || true)"
         _et="$(ps -o etimes= -p "$_p" 2>/dev/null | tr -d ' ' || true)"
@@ -188,7 +227,7 @@ mkdir -p "$TORCH_EXTENSIONS_DIR" 2>/dev/null || true
 # to another is a silent wrong-arch result.
 # Set KERNEL_ENV_KEEP_ARCH=1 to opt out (intentional multi-arch boxes).
 _rocminfo_gpu_gfx_list() {
-    if [ -n "${ROCR_VISIBLE_DEVICES:-}" ] || [ -z "${GPU_ID:-}" ]; then
+    if [ -n "${NRC_RUN_ID:-}" ] || [ -n "${ROCR_VISIBLE_DEVICES:-}" ] || [ -z "${GPU_ID:-}" ]; then
         rocminfo 2>/dev/null
     else
         ROCR_VISIBLE_DEVICES="$GPU_ID" rocminfo 2>/dev/null
@@ -216,11 +255,15 @@ _pin_compile_arch() {
     [ -n "${_ARCH:-}" ] && export GPU_ARCHS="${GPU_ARCHS:-$_ARCH}"
 }
 
+export GEAK_GPU_ID="$GPU_ID"
+if [ -z "${NRC_RUN_ID:-}" ]; then
+    export HIP_VISIBLE_DEVICES="$GPU_ID"
+fi
+
 if [ -n "${POOL_FD:-}" ]; then
     # Pool mode: (1) this process ALREADY holds the lane exclusively (and verified it idle).
     # Re-locking the same file from the same process would be a no-op at best, so just run --
     # the lane stays held until we exit, which is what guarantees no two evaluations share a GPU.
-    export HIP_VISIBLE_DEVICES="$GPU_ID"
     _pin_compile_arch || exit 1   # (3) after the selected GPU is visible
     "$@"
 else
@@ -248,7 +291,6 @@ else
         [ -n "${GEAK_GPU_USE_LOG:-}" ] && \
             echo "{\"t\":$(date +%s),\"gpu\":$GPU_ID,\"pool\":\"$GPU_SPEC\",\"pid\":$$,\"mode\":\"pin\",\"wait_s\":$(( SECONDS - _wait_t0 ))}" \
                 >> "$GEAK_GPU_USE_LOG" 2>/dev/null
-        export HIP_VISIBLE_DEVICES="$GPU_ID"
         _pin_compile_arch || exit 1   # (3) after the selected GPU is visible
         "$@"
     ) 200>"$LOCK_FILE"
