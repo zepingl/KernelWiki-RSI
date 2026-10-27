@@ -1,56 +1,106 @@
 # KernelWiki-RSI
 
-**Knowledge-as-a-Policy = Harness 的探索决策层。**
-基于 [Dream-RSI](https://arxiv.org/html/2609.14858v1)，用可追溯的 discovery tree
-训练结构化调度策略，再让新策略控制下一轮 GEAK 探索；生成器、模型、评测器和参考知识保持固定。
+**Knowledge-as-a-Policy: KernelWiki becomes the exploration policy of the GEAK harness.**
 
-> 当前格式为 **schema 2**。机制已实现并通过本地回归，尚未取得通过资格门的真实自进化收益。
-> 历史 buffer 的 **primary worlds = 0**；诊断 replay 不能代替策略晋级证据。
+Built on [Dream-RSI](https://arxiv.org/html/2609.14858v1), KernelWiki-RSI turns GEAK's auditable discovery
+trees into replayable "dream worlds", evolves a structured scheduling policy against them, and lets the
+qualified policy steer the next round of real exploration. The generator, model, evaluator and reference
+knowledge stay fixed. Only the exploration decisions change.
 
-## 一条闭环
+> **Status: schema 2.** The mechanism is implemented and covered by local regression tests.
+> No self-improvement gain has passed the qualification gate yet. The historical buffer has
+> **0 primary worlds**, and diagnostic replay is not promotion evidence.
 
-![KernelWiki-RSI：探索、逆向追溯、冻结 buffer、梦境回放与工作策略反馈](../../docs/visuals/kernelwiki-rsi/overview.png)
+![KernelWiki-RSI loop: explore, reverse-trace, freeze buffer, dream replay, policy feedback](docs/visuals/kernelwiki-rsi/overview.png)
 
-[▶ 播放两轮迭代](../../docs/visuals/kernelwiki-rsi/index.html) ·
-[矢量图](../../docs/visuals/kernelwiki-rsi/overview.svg) ·
-[案例数据与复现](../../docs/visuals/kernelwiki-rsi/README.md)
+[▶ Play two iterations](docs/visuals/kernelwiki-rsi/index.html) ·
+[SVG](docs/visuals/kernelwiki-rsi/overview.svg) ·
+[Case data & reproduction](docs/visuals/kernelwiki-rsi/README.md)
 
-图中机制对应当前代码；数值来自真实归档，**拓扑与闭环为教学构造**。
-同预算 replay 的构造案例为 **1.08% → 7.78%（+6.71 pp）**，不代表新 kernel、真实策略晋级或 Knowledge 发布。
+*The figure's mechanisms match the code and its numbers come from real archives. Its topology is a
+teaching construction: the same-budget replay gain of 1.08% → 7.78% is illustrative, not a promoted policy.*
 
-Reverse engineering 也可直接调查原始 GEAK run 或在线 capture，不依赖先构建 buffer。
-内循环只选择工作策略；只有最终资格判定通过后，`release` 才能 CAS 发布到 KernelWiki。
+## The loop
 
-## 代码地图
+```
+online explore ──► reverse engineering ──► frozen replay buffer ──► inner evolution ──► qualification ──► release
+ (fixed agent)      (results → evidence)     (immutable worlds)      (train/validation)   (paired gates)    (KernelWiki CAS)
+      ▲                                                                                                       │
+      └──────────────────────────────────────── next policy ◄────────────────────────────────────────────────┘
+```
 
-| 位置 | 独立职责 | 主要入口 |
-| --- | --- | --- |
-| [loop/](loop/) | 外循环反馈、内循环演化、在线生成与最终资格判定 | `outer.cycle`、`inner.evolve`、`qualification.release` |
-| [reverse_engineering/](reverse_engineering/) | 原始追溯、逐缺口调查、证据覆盖与有界方法分析 | `trace.trace`、`investigate.investigate` |
-| [replay_buffer/](replay_buffer/) | 不可变 buffer 构建、只读查询、cohort、模拟与目标函数 | `build.freeze`、`store.open_buffer`、`evaluate.evaluate` |
-| [harness.py](harness.py) | 在线与 replay 共用的固定策略解释器和 rollout 状态机 | `Policy`、`Rollout` |
-| [discovery.py](discovery.py)、[evidence.py](evidence.py) | 共享领域值、源码/上下文身份与原始证据引用 | `Attempt`、`World`、`EvidenceRef` |
-| [runtime.py](runtime.py) | 有界进程与固定实验 Agent；角色 schema 由业务模块持有 | `RuntimeAgent` |
-| [__main__.py](__main__.py)、[report.py](report.py) | CLI 组合与报告展示，不另建事实来源 | `python3 -m kernel_workflow.rsi` |
+- **Outer loop** (`loop/outer.py`) runs online discovery, reverse-traces new evidence, freezes a new buffer
+  and invokes the inner loop.
+- **Inner loop** (`loop/inner.py`) only selects a working policy. It never sees the test split and never publishes.
+- **Release** (`loop/qualification.py`) publishes to KernelWiki via compare-and-swap, and only after fresh
+  paired replay and online non-regression gates pass.
 
-每个机制的 tests、roles、configs 随责任归属放置；不存在的目录不为对称性而补建。
-依赖方向为 `loop → replay_buffer → reverse_engineering → 共享领域值`，loop 也直接使用逆向调查。
-KernelWiki SDK 是独立依赖，不在 GEAK 内复制。
+## Code structure
 
-## 不可突破的边界
+```
+kernel_workflow/rsi/
+├── __main__.py            CLI: ingest · freeze · trace · investigate · replay · evolve · report
+│                               explore · calibrate · cycle · release
+├── harness.py             Policy + Rollout: one scheduling state machine shared by online and replay
+├── discovery.py           Domain values: SourceState, Measurement, Attempt, DiscoveryNode/World
+├── evidence.py            Immutable, line-addressable EvidenceRef; JSON/JSONL artifact I/O and hashing
+├── runtime.py             RuntimeAgent: fixed experimental agent, bounded processes, frozen sources
+├── report.py              Derived coverage and experiment reports (never a source of truth)
+├── glm7_evaluator.py      Runs the unchanged GLM7 UT and binds its report to the real HIP device
+├── agent_workflow.js      One isolated agent call (developer / reviewer / analyst) for runtime.py
+│
+├── loop/                  Bounded discovery, policy evolution, final qualification
+│   ├── outer.py           cycle(): online → reverse → new buffer → evolve
+│   ├── inner.py           evolve(): Developer/Reviewer loop over frozen replay worlds
+│   ├── online.py          explore() / calibrate(): live discovery with the fixed GEAK worker
+│   ├── evaluator.py       FixedEvaluator: independent fixed-contract host measurements
+│   ├── qualification.py   qualify() / release(): paired gates, then KernelWiki publication
+│   ├── run.py             Frozen cycle inputs, resource envelopes, stage receipts
+│   ├── roles/             developer.md, reviewer.md
+│   └── configs/           cycle.example.yaml, online.example.yaml
+│
+├── replay_buffer/         Immutable buffers, fixed cohorts, finite harness replay
+│   ├── build.py           ingest() raw history · freeze() online history + investigations
+│   ├── store.py           open_buffer(): read-only verified snapshot
+│   ├── cohorts.py         Policy-independent primary/diagnostic cohorts and kernel-level splits
+│   ├── simulator.py       Deterministic recorded transitions (no agent, no GPU)
+│   ├── objective.py       ReplayObjective with explicit units and macro aggregation
+│   ├── evaluate.py        evaluate() / qualifies(): paired fixed-buffer evaluation
+│   └── configs/           glm7.yaml
+│
+├── reverse_engineering/   Evidence-bound provenance of GEAK optimization attempts
+│   ├── model.py           Relation, TraceSubject, Coverage, Gap, ReverseReport
+│   ├── trace.py           trace(): verified evidence → observations, method reviews, effects
+│   ├── investigate.py     investigate(): per-gap search with explicit coverage
+│   ├── analyst.py         Optional bounded method review that cannot rewrite facts
+│   ├── sources/           archive.py (GEAK audit runs) · capture.py (fixed-harness captures)
+│   └── roles/             analyst.md
+│
+└── docs/                  Visual atlas, roadmap, objective analysis
+```
 
-- **Replay 只揭示已有结果**：不调用 Agent/GPU，不补造分支或 continuation；缺失转移不能换取更便宜的合格分数。
-- **事实与判断分离**：源码、测量、保留与 Director 决定保留原始来源；analyst review 不能改写实验事实，部分搜索不能证明“没有”。
-- **Primary 支持先于候选**：分支、continuation、完整 outcome 和最大预算覆盖均须满足；缺少 train/validation 支持时，零 Agent 调用并保留 incumbent。
-- **选择与发布分离**：内循环不查看 test、不发布；真实 cycle 需要单独预算授权，最终候选需要新鲜配对 replay/online 非回退门。
+**Dependency direction:** `loop → replay_buffer → reverse_engineering → harness → discovery`.
+`evidence` and `runtime` are leaves. `reverse_engineering` and `runtime` never import `loop` or `replay_buffer`,
+which `tests/test_structure.py` enforces. Each package keeps its own `tests/`, `roles/` and `configs/`.
+The KernelWiki SDK is an external dependency and is not vendored.
 
-实验 Agent 固定为 `claude-opus-5.5 --effort high`；不做模型 fallback、工具/MCP、会话复用或 schema 重试。
-逆向调查默认 `--model-calls 0`，只有显式预算才启用方法分析。
+## Invariants
 
-## 本地使用
+- **Replay only reveals recorded outcomes.** It makes no agent or GPU calls and never synthesizes branches or
+  continuations, so a missing transition can't buy a cheaper qualifying score.
+- **Facts stay separate from judgments.** Sources, measurements and Director decisions keep their raw
+  provenance. Analyst reviews can't rewrite them, and a partial search proves no absence.
+- **Primary support comes before candidates.** Without train/validation primary support, the inner loop
+  spends zero agent calls and keeps the incumbent.
+- **Selection is separate from publication.** Real cycles need explicit budget approval, and release needs
+  fresh paired replay and online non-regression gates.
+- **The agent is fixed** at `claude-opus-5.5 --effort high`, with no model fallback, tools/MCP, session reuse or
+  schema retries. Reverse investigation defaults to `--model-calls 0`.
 
-需要 Python ≥ 3.10、PyYAML，以及包含 `KnowledgeClient` 的配套 KernelWiki checkout。
-以下命令在 **GEAK 仓库根目录**执行；KernelWiki 使用绝对路径，不假定两个 checkout 相邻。
+## Quick start
+
+Requirements: Python ≥ 3.10, PyYAML, and a KernelWiki checkout that provides `KnowledgeClient`.
+Run these from the **GEAK repository root**:
 
 ```bash
 export KERNELWIKI_ROOT=/absolute/path/to/KernelWiki
@@ -59,52 +109,49 @@ export POOL=/absolute/path/to/pool-schema2
 export RSI_OUT="$(mktemp -d /tmp/kernelwiki-rsi.XXXXXX)"
 
 python3 -m kernel_workflow.rsi --help
+
+# Coverage report and diagnostic replay over an existing buffer
 python3 -m kernel_workflow.rsi report --pool "$POOL" --output "$RSI_OUT/coverage.md"
 python3 -m kernel_workflow.rsi replay --pool "$POOL" --wiki "$KERNELWIKI_ROOT" \
   --split train --cohort diagnostic --output "$RSI_OUT/replay.json"
-```
 
-直接调查原始 run：设置其 `AUDIT_RUN`、原始 `KERNEL`/`CAMPAIGN` 和外部调用 `ATTEMPT`。
-报告若要合入已有 buffer，`CAMPAIGN` 必须与该 buffer 的原始记录一致。
-
-```bash
+# Reverse-investigate one attempt directly from a raw GEAK run (no buffer needed)
 python3 -m kernel_workflow.rsi investigate --run "$AUDIT_RUN" \
   --kernel "$KERNEL" --campaign "$CAMPAIGN" --attempt "$ATTEMPT" \
   --max-steps 4 --model-calls 0 --output "$RSI_OUT/reverse"
 ```
 
-`trace` / `investigate` 的 `--run`、`--online`、`--pool` 三选一。
-输出是新增的不可变工件，不能覆盖已有结果。
-`ingest` / `freeze` 构建新 buffer；`evolve` 执行内循环；`calibrate` / `cycle` / `release`
-的授权与恢复流程见[完整工程说明](../../docs/kernelwiki-rsi-v1.md#commands-and-authorization)。
-示例配置分别位于 [replay_buffer/configs/](replay_buffer/configs/) 和 [loop/configs/](loop/configs/)。
+- `trace` and `investigate` take exactly one of `--run`, `--online` or `--pool`. To merge a report into an
+  existing buffer, `CAMPAIGN` must match that buffer's original records.
+- Every output is a new immutable artifact and never overwrites existing results.
+- `ingest` / `freeze` build buffers, and `evolve` runs the inner loop. The authorization and resume flow for
+  `calibrate` / `cycle` / `release` is described in
+  [Commands and authorization](../../docs/kernelwiki-rsi-v1.md#commands-and-authorization).
 
-## 当前实验结论
+## Current results
 
-| 证据 | 结论 |
+| Evidence | Result |
 | --- | --- |
-| Schema-2 历史 buffer | 1,498 attempts；528 replay-ready；153 qualified outcomes；337 diagnostic worlds；0 primary worlds；3 个逆向报告 |
-| 当前内循环门禁 | `insufficient_primary_support`；0 Agent calls；无策略晋级或发布 |
-| 归档 schema-1 Opus 实验 | 4 次 Developer + 4 次 Reviewer；候选早停策略提高 Objective，但 held-out full-budget quality 回退，最终 `no_change` |
+| Schema-2 historical buffer | 1,498 attempts · 528 replay-ready · 153 qualified outcomes · 337 diagnostic worlds · **0 primary worlds** · 3 reverse reports |
+| Inner-loop gate | `insufficient_primary_support`: 0 agent calls, no promotion, no release |
+| Archived schema-1 Opus run | 4 Developer + 4 Reviewer calls. Held-out objective −0.00841 → −0.00809, but full-budget quality regressed 0.00555 → 0.00541, so the result was `no_change` |
 
-归档候选的 held-out Objective 从 `-0.0084097556` 提高到 `-0.0080863459`，
-但 full-budget quality 从 `0.0055477347` 降至 `0.0054050484`，因此保留 incumbent。
-**尚未发现通过门禁的更优 KernelWiki 策略或新 discovery tree。**
-逆向恢复历史关系不等于创造新发现，也不证明知识的因果增益。
+No qualified better KernelWiki policy or new discovery tree has been found yet. Recovering historical
+provenance is not a new discovery and doesn't prove that knowledge causes the gain.
 
-## 回归与深入阅读
-
-运行测试还需 pytest；runtime 回归需 Node，可用 `GEAK_NODE_BIN` 指定本地路径。
+## Testing
 
 ```bash
 export KERNEL_EXTRACT_LOCK_DIR="$(mktemp -d /tmp/rsi-test-locks.XXXXXX)"
 python3 -m pytest -q kernel_workflow/rsi
-"${GEAK_NODE_BIN:-node}" interface/runtime/engine/selftest.mjs
+"${GEAK_NODE_BIN:-node}" interface/runtime/engine/selftest.mjs   # runtime regression (requires Node)
 ```
 
-2026-10-25 配对回归为 **470 passed / 1 skipped**（其中 RSI 104 项），Node **108 passed / 0 failed**。
-远程配对 CI 还需要已发布的匹配 KernelWiki SDK commit，通过 `KERNELWIKI_RSI_REF` 固定其 40 位 SHA。
-代码提交不等于实验资格通过或 Knowledge 发布。
+Remote paired CI pins a published KernelWiki SDK commit through `KERNELWIKI_RSI_REF`, a 40-character SHA.
+A passing test suite doesn't mean experimental qualification or a Knowledge release.
 
-- [完整工程说明与重构证据](../../docs/kernelwiki-rsi-v1.md)
-- [归档 Opus 实验：候选、指标与拒绝原因](../../docs/kernelwiki-rsi-v1-experiment.md)
+## Further reading
+
+- [Engineering design & refactor evidence](../../docs/kernelwiki-rsi-v1.md)
+- [Archived Opus experiment: candidates, metrics, rejection reasons](../../docs/kernelwiki-rsi-v1-experiment.md)
+- [Replay objective analysis](docs/replay-objective-analysis.md) · [Roadmap](docs/KernelWiki-RSI/roadmap.md)
