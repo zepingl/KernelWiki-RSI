@@ -119,7 +119,7 @@ footer { display: flex; justify-content: space-between; gap: 20px; margin-top: 4
   #scene { min-width: 760px; }
   .rail { grid-template-columns: 1fr; }
   #round-select { margin-left: 0; }
-  footer { display: block; }
+  footer { display: grid; gap: 4px; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }

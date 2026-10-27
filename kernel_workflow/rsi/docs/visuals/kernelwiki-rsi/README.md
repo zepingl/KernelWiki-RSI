@@ -49,8 +49,8 @@ B0 仅复用 root 测量，不是额外实测 attempt。源码与上下文使用
 
 | 文件 | 职责 |
 | --- | --- |
-| `index.html`、`style.css` | 单一 SVG 图稿与响应式页面；窄屏只在图内左右滚动 |
-| `player.js` | 播放、暂停、拖动、两轮切换、方向键和当前帧 SVG 导出；无计算策略分数的副本 |
+| `index.html`、`style.css` | 单一 SVG 图稿（顺时针五站闭环：蓝 = 历史，紫 = 梦境）与响应式页面；窄屏只在图内左右滚动 |
+| `player.js` | 播放、暂停、阶段切换、两轮切换、方向键和当前帧 SVG 导出；无计算策略分数的副本 |
 | `case.js` | 冻结的实测来源与当前 Python replay 预计算结果 |
 | `build_case.py`、`test_case.py` | 只读构造与重放；验证原始数据保留、同预算比较和策略继承 |
 | `overview.svg`、`overview.png` | 第一轮反馈阶段的静态导出；PNG 为 2× 高清、无字体依赖 |

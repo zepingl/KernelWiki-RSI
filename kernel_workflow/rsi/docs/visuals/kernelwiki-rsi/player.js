@@ -80,8 +80,8 @@
     find("node-a2-quality").textContent = "+" + percent(source.measurements.A2.quality);
     find("baseline-quality").textContent = percent(baseline.best_quality);
     find("candidate-quality").textContent = percent(candidate.best_quality);
-    find("baseline-bar").setAttribute("width", String(220 * baseline.best_quality / .1));
-    find("candidate-bar").setAttribute("width", String(220 * candidate.best_quality / .1));
+    find("baseline-bar").setAttribute("width", String(180 * baseline.best_quality / .1));
+    find("candidate-bar").setAttribute("width", String(180 * candidate.best_quality / .1));
     find("quality-gain").textContent = "+" + ((candidate.best_quality - baseline.best_quality) * 100).toFixed(2) + "pp";
     find("case-gain").innerHTML = "+" + ((data.sources.worlds[0].measurements.A2.quality - data.sources.worlds[0].measurements.A1.quality) * 100).toFixed(2) + "<span>pp</span>";
     for (const group of trialGroups) {

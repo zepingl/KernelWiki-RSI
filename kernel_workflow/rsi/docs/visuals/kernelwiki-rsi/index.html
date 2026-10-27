@@ -58,7 +58,6 @@
                 .scene-root[data-phase="3"] .s3 .badge,.scene-root[data-phase="4"] .s4 .badge{fill:#7a52c7}
                 .scene-root[data-phase="0"] .s0 .badge-n,.scene-root[data-phase="1"] .s1 .badge-n,.scene-root[data-phase="2"] .s2 .badge-n,
                 .scene-root[data-phase="3"] .s3 .badge-n,.scene-root[data-phase="4"] .s4 .badge-n{fill:#fff}
-                .scene-root .track{fill:none;stroke:#eceef1;stroke-width:1.5}
                 .scene-root .edge{fill:none;stroke:#c3c8d0;stroke-width:1.6;stroke-linecap:round;transition:stroke .35s}
                 .scene-root[data-phase="0"] .e0,.scene-root[data-phase="1"] .e1{stroke:#3273dc;stroke-width:2.2}
                 .scene-root[data-phase="2"] .e2,.scene-root[data-phase="3"] .e3,.scene-root[data-phase="4"] .e4{stroke:#7a52c7;stroke-width:2.2}
@@ -98,8 +97,7 @@
               <path d="M1006 42h20" stroke="#d29b55" stroke-width="2" stroke-dasharray="4 4"/><text x="1033" y="46">教学构造</text>
             </g>
 
-            <!-- the loop: stations sit on one clockwise track; only the gaps show -->
-            <path class="track" d="M142 201 H964 V483 H142 Z"/>
+            <!-- the loop runs clockwise: 01 → 02 → 03 → 04 → 05 → 01 -->
             <path id="edge-0" class="edge e0" d="M596 201 H636" marker-end="url(#head-env)"/>
             <path id="edge-1" class="edge e1" d="M964 322 V368" marker-end="url(#head-env)"/>
             <path id="edge-2" class="edge e2" d="M818 483 H780" marker-end="url(#head-mid)"/>
@@ -222,11 +220,11 @@
                 <title>A1 → 预设延续 A2</title>
               </g>
               <text x="320" y="552" class="mono small">θ₀</text>
-              <rect x="344" y="545" width="220" height="7" rx="3.5" fill="#f1f2f4"/><rect id="baseline-bar" x="344" y="545" width="24" height="7" rx="3.5" fill="#c3c8d0"/>
-              <text id="baseline-quality" x="574" y="553" class="mono small">1.08%</text>
+              <rect x="344" y="545" width="180" height="7" rx="3.5" fill="#f1f2f4"/><rect id="baseline-bar" x="344" y="545" width="24" height="7" rx="3.5" fill="#c3c8d0"/>
+              <text id="baseline-quality" x="534" y="553" class="mono small">1.08%</text>
               <text x="320" y="574" class="mono small mid">θ₂</text>
-              <rect x="344" y="567" width="220" height="7" rx="3.5" fill="#f1f2f4"/><rect id="candidate-bar" x="344" y="567" width="171" height="7" rx="3.5" fill="#7a52c7"/>
-              <text id="candidate-quality" x="574" y="575" class="mono small mid">7.78%</text>
+              <rect x="344" y="567" width="180" height="7" rx="3.5" fill="#f1f2f4"/><rect id="candidate-bar" x="344" y="567" width="171" height="7" rx="3.5" fill="#7a52c7"/>
+              <text id="candidate-quality" x="534" y="575" class="mono small mid">7.78%</text>
               <text x="756" y="550" text-anchor="end" class="small">同预算 2 → 2 · best quality</text>
               <text id="quality-gain" x="756" y="576" text-anchor="end" class="mono mid" font-size="20" font-weight="600">+6.71pp</text>
             </g>
