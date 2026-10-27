@@ -15,7 +15,7 @@
 
 <img src="docs/visuals/kernelwiki-rsi/overview.png" alt="KernelWiki-RSI loop" width="92%">
 
-<sub>[▶ Play two iterations](docs/visuals/kernelwiki-rsi/index.html) · [SVG](docs/visuals/kernelwiki-rsi/overview.svg) · [Case data](docs/visuals/kernelwiki-rsi/README.md) — mechanisms match the code and numbers come from real archives, but the topology is illustrative.</sub>
+<sub>[Play two iterations](docs/visuals/kernelwiki-rsi/index.html) · [SVG](docs/visuals/kernelwiki-rsi/overview.svg) · [Case data](docs/visuals/kernelwiki-rsi/README.md) — mechanisms match the code and numbers come from real archives, but the topology is illustrative.</sub>
 
 </div>
 
@@ -33,11 +33,11 @@ scheduling policy against them, and lets the qualified policy steer the next rou
 
 ```mermaid
 flowchart LR
-    E["🔭 Explore<br/>fixed GEAK agent"] --> R["🔍 Reverse-engineer<br/>results → evidence"]
-    R --> B["🧊 Freeze buffer<br/>immutable worlds"]
-    B --> I["🌙 Dream replay<br/>train / validation"]
-    I --> Q{"✅ Qualify<br/>paired gates"}
-    Q -- pass --> P["📦 Release<br/>KernelWiki CAS"]
+    E["Explore<br/>fixed GEAK agent"] --> R["Reverse-engineer<br/>results → evidence"]
+    R --> B["Freeze buffer<br/>immutable worlds"]
+    B --> I["Dream replay<br/>train / validation"]
+    I --> Q{"Qualify<br/>paired gates"}
+    Q -- pass --> P["Release<br/>KernelWiki CAS"]
     Q -- fail --> K["keep incumbent"]
     P -. next policy .-> E
     K -. next round .-> E
@@ -62,14 +62,14 @@ kernel_workflow/rsi/
 ├── glm7_evaluator.py        GLM7 UT bound to the real HIP device
 ├── agent_workflow.js        One isolated agent call, launched by runtime.py
 │
-├── loop/                    🔁 discovery, evolution, qualification
-├── replay_buffer/           🧊 immutable buffers and finite replay
-├── reverse_engineering/     🔍 evidence-bound provenance
-└── docs/                    🎞️ visual atlas, roadmap, objective analysis
+├── loop/                    discovery, evolution, qualification
+├── replay_buffer/           immutable buffers and finite replay
+├── reverse_engineering/     evidence-bound provenance
+└── docs/                    visual atlas, roadmap, objective analysis
 ```
 
 <table>
-<tr><th>🔁 <code>loop/</code></th><th>🧊 <code>replay_buffer/</code></th><th>🔍 <code>reverse_engineering/</code></th></tr>
+<tr><th><code>loop/</code></th><th><code>replay_buffer/</code></th><th><code>reverse_engineering/</code></th></tr>
 <tr valign="top">
 <td>
 
@@ -122,13 +122,13 @@ or `replay_buffer`, and the import graph stays acyclic. Each package owns its ow
 
 ## Design invariants
 
-| | Invariant | Meaning |
-| :-: | :-- | :-- |
-| 🧊 | **Replay only reveals** | No agent or GPU calls, and no synthesized branches. A missing transition never buys a cheaper score |
-| ⚖️ | **Facts ≠ judgments** | Raw measurements and decisions keep provenance. Reviews can't rewrite them, and partial search proves no absence |
-| 🧱 | **Primary support first** | Without train/validation primary support: zero agent calls, incumbent kept |
-| 🚦 | **Select ≠ publish** | Inner loop never publishes. Release needs fresh paired replay and online gates |
-| 🔒 | **Fixed agent** | `claude-opus-5.5 --effort high`, with no fallback, tools/MCP, session reuse or schema retries |
+| Invariant | Meaning |
+| :-- | :-- |
+| **Replay only reveals** | No agent or GPU calls, and no synthesized branches. A missing transition never buys a cheaper score |
+| **Facts ≠ judgments** | Raw measurements and decisions keep provenance. Reviews can't rewrite them, and partial search proves no absence |
+| **Primary support first** | Without train/validation primary support: zero agent calls, incumbent kept |
+| **Select ≠ publish** | Inner loop never publishes. Release needs fresh paired replay and online gates |
+| **Fixed agent** | `claude-opus-5.5 --effort high`, with no fallback, tools/MCP, session reuse or schema retries |
 
 ## Quick start
 
@@ -203,10 +203,8 @@ A green test suite doesn't mean experimental qualification or a Knowledge releas
 
 ## Further reading
 
-| | Document |
-| :-: | :-- |
-| 📘 | [Engineering design & refactor evidence](../../docs/kernelwiki-rsi-v1.md) |
-| 🧪 | [Archived Opus experiment: candidates, metrics, rejection reasons](../../docs/kernelwiki-rsi-v1-experiment.md) |
-| 📐 | [Replay objective analysis](docs/replay-objective-analysis.md) |
-| 🗺️ | [Roadmap](docs/KernelWiki-RSI/roadmap.md) |
-| 🎞️ | [Loop atlas & animation](docs/visuals/kernelwiki-rsi/README.md) |
+- [Engineering design & refactor evidence](../../docs/kernelwiki-rsi-v1.md)
+- [Archived Opus experiment: candidates, metrics, rejection reasons](../../docs/kernelwiki-rsi-v1-experiment.md)
+- [Replay objective analysis](docs/replay-objective-analysis.md)
+- [Roadmap](docs/KernelWiki-RSI/roadmap.md)
+- [Loop atlas & animation](docs/visuals/kernelwiki-rsi/README.md)
