@@ -9,21 +9,14 @@
 
 ## 一条闭环
 
-```text
-工作策略 θ(t) → 固定 Harness → GEAK 在线探索
-                                  ↓
-                    源码 / 父节点上下文 / 调用 / 独立测量
-                                  ↓
-                    reverse trace → 按证据缺口调查
-                                  ↓
-                    每轮冻结一次 replay buffer B(t+1)
-                                  ↓
-                    Developer → Reviewer → train replay
-                                  ↓
-                    validation 选择 θ(t+1) → 下一轮探索
-                                  ↓
-                    冻结最终候选 → 新鲜配对门禁 → 显式 release
-```
+![KernelWiki-RSI：探索、逆向追溯、冻结 buffer、梦境回放与工作策略反馈](../../docs/visuals/kernelwiki-rsi/overview.png)
+
+[▶ 播放两轮迭代](../../docs/visuals/kernelwiki-rsi/index.html) ·
+[矢量图](../../docs/visuals/kernelwiki-rsi/overview.svg) ·
+[案例数据与复现](../../docs/visuals/kernelwiki-rsi/README.md)
+
+图中机制对应当前代码；数值来自真实归档，**拓扑与闭环为教学构造**。
+同预算 replay 的构造案例为 **1.08% → 7.78%（+6.71 pp）**，不代表新 kernel、真实策略晋级或 Knowledge 发布。
 
 Reverse engineering 也可直接调查原始 GEAK run 或在线 capture，不依赖先构建 buffer。
 内循环只选择工作策略；只有最终资格判定通过后，`release` 才能 CAS 发布到 KernelWiki。

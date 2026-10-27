@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>KernelWiki-RSI · Watch knowledge dream</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main>
+    <header class="masthead">
+      <a class="brand" href="../../../kernel_workflow/rsi/README.md"><span class="brand-mark">K</span> KernelWiki <span class="brand-divider">/</span> RSI</a>
+      <a class="reference-link" href="https://dream-rsi.com/#demos" target="_blank" rel="noopener noreferrer">Inspired by Dream-RSI ↗</a>
+    </header>
+
+    <section class="intro" aria-labelledby="page-title">
+      <p class="eyebrow">Loop atlas · schema 2</p>
+      <h1 id="page-title">让知识在历史里，<span>学会更好的探索。</span></h1>
+      <p class="lede">同一段 discovery history，换一种探索策略。梦境只改变 Harness 的决策，不改变事实。</p>
+    </section>
+
+    <section class="demo" data-playing="false" aria-label="KernelWiki-RSI 交互循环演示">
+      <div class="sec-no">01 — Demo</div>
+      <h2 class="demo-title">Watch knowledge dream itself better</h2>
+
+      <div class="screen">
+        <div class="canvas-wrap">
+          <svg id="scene" class="scene-root" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1140 640" role="group" aria-labelledby="scene-title scene-description" data-phase="0" data-round="1" data-trial="neutral" data-focus="true" data-playing="false">
+            <title id="scene-title">KernelWiki-RSI 一轮外循环：在线探索、逆向追溯、冻结 buffer、梦境回放、择优反馈</title>
+            <desc id="scene-description">顺时针闭环。上方与右侧是真实历史（蓝），下方是梦境回放（紫）。教学构造的 discovery tree：A1 与 A2 的分数来自两条真实历史兄弟分支，A1 → A2 延续是构造的；B0 复用 root 对照。现有 Python replay 计算基线与续探策略的同预算差异。当前真实 buffer 的 primary worlds 为零，没有真实自进化晋级。</desc>
+            <defs>
+              <filter id="lift" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#0f141e" flood-opacity=".06"/></filter>
+              <marker id="head-line" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M1 1 L6 4 L1 7" fill="none" stroke="#c3c8d0" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker>
+              <marker id="head-env" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M1 1 L6 4 L1 7" fill="none" stroke="#3273dc" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker>
+              <marker id="head-mid" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M1 1 L6 4 L1 7" fill="none" stroke="#7a52c7" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker>
+              <style>
+                .scene-root{font-family:"Noto Sans SC","Noto Sans CJK SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+                .scene-root text{fill:#24292f}
+                .scene-root .mono{font-family:"JetBrains Mono","DejaVu Sans Mono",ui-monospace,monospace}
+                .scene-root .h{font-size:16px;font-weight:600}
+                .scene-root .tag{font-family:"JetBrains Mono","DejaVu Sans Mono",ui-monospace,monospace;font-size:10.5px;letter-spacing:1.2px;fill:#6a7079}
+                .scene-root .small{font-size:12px;fill:#6a7079}
+                .scene-root .env{fill:#2456b0}.scene-root .mid{fill:#5e3aa8}.scene-root .warm{fill:#9a5d17}
+                .scene-root .card{fill:#fff;stroke:#e9eaee;stroke-width:1.2;transition:stroke .35s,fill .35s}
+                .scene-root .badge{fill:#f1f2f4;transition:fill .35s}
+                .scene-root .badge-n{font-family:"JetBrains Mono","DejaVu Sans Mono",monospace;font-size:10.5px;font-weight:600;text-anchor:middle;fill:#6a7079}
+                .scene-root .station,.scene-root .edge-label{transition:opacity .45s}
+                .scene-root[data-focus="true"] .station{opacity:.38}
+                .scene-root[data-focus="true"][data-phase="0"] .s0,.scene-root[data-focus="true"][data-phase="0"] .tree,
+                .scene-root[data-focus="true"][data-phase="1"] .s1,.scene-root[data-focus="true"][data-phase="1"] .tree,
+                .scene-root[data-focus="true"][data-phase="2"] .s2,
+                .scene-root[data-focus="true"][data-phase="3"] .s3,.scene-root[data-focus="true"][data-phase="3"] .tree,
+                .scene-root[data-focus="true"][data-phase="4"] .s4{opacity:1}
+                .scene-root[data-phase="0"] .s0 .card,.scene-root[data-phase="1"] .s1 .card,.scene-root[data-phase="2"] .s2 .card{stroke:#3273dc;stroke-width:1.8;fill:#fbfcff}
+                .scene-root[data-phase="3"] .s3 .card,.scene-root[data-phase="4"] .s4 .card{stroke:#7a52c7;stroke-width:1.8;fill:#fdfbff}
+                .scene-root[data-phase="0"] .s0 .badge,.scene-root[data-phase="1"] .s1 .badge,.scene-root[data-phase="2"] .s2 .badge{fill:#3273dc}
+                .scene-root[data-phase="3"] .s3 .badge,.scene-root[data-phase="4"] .s4 .badge{fill:#7a52c7}
+                .scene-root[data-phase="0"] .s0 .badge-n,.scene-root[data-phase="1"] .s1 .badge-n,.scene-root[data-phase="2"] .s2 .badge-n,
+                .scene-root[data-phase="3"] .s3 .badge-n,.scene-root[data-phase="4"] .s4 .badge-n{fill:#fff}
+                .scene-root .track{fill:none;stroke:#eceef1;stroke-width:1.5}
+                .scene-root .edge{fill:none;stroke:#c3c8d0;stroke-width:1.6;stroke-linecap:round;transition:stroke .35s}
+                .scene-root[data-phase="0"] .e0,.scene-root[data-phase="1"] .e1{stroke:#3273dc;stroke-width:2.2}
+                .scene-root[data-phase="2"] .e2,.scene-root[data-phase="3"] .e3,.scene-root[data-phase="4"] .e4{stroke:#7a52c7;stroke-width:2.2}
+                .scene-root[data-playing="true"][data-phase="0"] .e0,.scene-root[data-playing="true"][data-phase="1"] .e1,.scene-root[data-playing="true"][data-phase="2"] .e2,
+                .scene-root[data-playing="true"][data-phase="3"] .e3,.scene-root[data-playing="true"][data-phase="4"] .e4{stroke-dasharray:5 6;animation:flow 1.2s linear infinite}
+                .scene-root[data-focus="true"] .edge-label{opacity:.4}
+                .scene-root[data-focus="true"][data-phase="2"] .l2,.scene-root[data-focus="true"][data-phase="4"] .l4{opacity:1}
+                .scene-root #token{opacity:0;transition:opacity .25s}
+                .scene-root .tree-edge{stroke:#d7dae0;stroke-width:2;fill:none;stroke-linecap:round}
+                .scene-root .construct{stroke:#d29b55;stroke-dasharray:4 5}
+                .scene-root .route{fill:none;stroke:#7a52c7;stroke-width:6;stroke-linecap:round;stroke-linejoin:round;opacity:0;transition:opacity .4s}
+                .scene-root[data-phase="3"][data-trial="neutral"] .route.baseline,.scene-root[data-phase="3"][data-trial="stop"] .route.stop,.scene-root[data-phase="3"][data-trial="continue"] .route.learned,.scene-root[data-phase="4"] .route.learned{opacity:.22}
+                .scene-root .node{cursor:pointer}
+                .scene-root .node-ring{fill:#fff;stroke:#d7dae0;stroke-width:1.6;transition:fill .35s,stroke .35s}
+                .scene-root .node-id{font-size:11px;font-weight:700;text-anchor:middle;fill:#6a7079}
+                .scene-root .node.revealed .node-ring{fill:#eef4fd;stroke:#3273dc;stroke-width:2}
+                .scene-root .node.revealed .node-id{fill:#2456b0}
+                .scene-root .node:focus{outline:none}.scene-root .node:focus .node-ring{stroke:#7a52c7;stroke-width:3}
+                .scene-root .node-score{opacity:.25;transition:opacity .35s}.scene-root .node-score.revealed{opacity:1}
+                .scene-root .step-dot{fill:#fff;stroke:#c3c8d0;stroke-width:1.5;transition:fill .3s,stroke .3s}
+                .scene-root .step.reached .step-dot{fill:#3273dc;stroke:#3273dc}
+                .scene-root .step text{fill:#6a7079;transition:fill .3s}.scene-root .step.reached text{fill:#24292f}
+                .scene-root .trial-card{fill:#fff;stroke:#e9eaee;stroke-width:1.2;transition:stroke .3s,fill .3s}
+                .scene-root .trial.active .trial-card{fill:#f6f2fd;stroke:#7a52c7;stroke-width:1.8}
+                .scene-root .world-next{opacity:.32;transition:opacity .4s}.scene-root[data-round="2"] .world-next{opacity:1}
+                @keyframes flow{to{stroke-dashoffset:-22}}
+                @media(prefers-reduced-motion:reduce){.scene-root *{animation:none!important;transition:none!important}}
+              </style>
+            </defs>
+
+            <rect width="1140" height="640" fill="#fff"/>
+            <text x="32" y="46" font-size="17" font-weight="700">KernelWiki-RSI</text>
+            <text x="172" y="46" class="small">一轮外循环 · Knowledge 即探索策略，历史即梦境世界</text>
+            <g class="small" font-size="11">
+              <circle cx="760" cy="42" r="4.5" fill="#3273dc"/><text x="771" y="46">历史 · 实测数值</text>
+              <circle cx="884" cy="42" r="4.5" fill="#7a52c7"/><text x="895" y="46">梦境 · 0 次执行</text>
+              <path d="M1006 42h20" stroke="#d29b55" stroke-width="2" stroke-dasharray="4 4"/><text x="1033" y="46">教学构造</text>
+            </g>
+
+            <!-- the loop: stations sit on one clockwise track; only the gaps show -->
+            <path class="track" d="M142 201 H964 V483 H142 Z"/>
+            <path id="edge-0" class="edge e0" d="M596 201 H636" marker-end="url(#head-env)"/>
+            <path id="edge-1" class="edge e1" d="M964 322 V368" marker-end="url(#head-env)"/>
+            <path id="edge-2" class="edge e2" d="M818 483 H780" marker-end="url(#head-mid)"/>
+            <path id="edge-3" class="edge e3" d="M296 483 H262" marker-end="url(#head-mid)"/>
+            <path id="edge-4" class="edge e4" d="M142 370 V326" marker-end="url(#head-mid)"/>
+            <text class="edge-label l2 small mid" x="976" y="350">历史成为 simulator</text>
+            <text class="edge-label l4 small mid" x="154" y="352">θ 控制下一轮</text>
+
+            <!-- 01 online explore -->
+            <g class="station s0">
+              <rect class="card" x="32" y="84" width="562" height="236" rx="16" filter="url(#lift)"/>
+              <circle class="badge" cx="56" cy="110" r="12"/><text class="badge-n" x="56" y="114">01</text>
+              <text x="76" y="115" class="h">在线探索</text>
+              <text x="574" y="114" text-anchor="end" class="tag">ONLINE EXPLORE</text>
+              <g transform="translate(96 140)">
+                <path d="M32 0 V9 M29 -3h6" fill="none" stroke="#9dbdf0" stroke-width="2.5" stroke-linecap="round"/>
+                <rect x="0" y="9" width="64" height="44" rx="14" fill="#eef4fd" stroke="#9dbdf0" stroke-width="1.6"/>
+                <path d="M-4 22h4v17h-4 M64 22h4v17h-4" fill="#dde9fb" stroke="#9dbdf0" stroke-width="1.2"/>
+                <rect x="12" y="18" width="40" height="23" rx="8" fill="#2456b0"/>
+                <circle cx="24" cy="29" r="3.2" fill="#cfe0ff"/><circle cx="40" cy="29" r="3.2" fill="#cfe0ff"/>
+                <path d="M28 36h8" stroke="#9dbdf0" stroke-width="1.5" stroke-linecap="round"/>
+                <path d="M13 54v5 M51 54v5" stroke="#9dbdf0" stroke-width="4" stroke-linecap="round"/>
+              </g>
+              <text x="128" y="230" text-anchor="middle" font-size="14" font-weight="600">固定 GEAK Agent</text>
+              <text x="128" y="249" text-anchor="middle" class="small">只读已揭示的 prefix</text>
+              <rect x="54" y="266" width="148" height="34" rx="9" fill="#eef4fd"/>
+              <text id="working-policy" x="128" y="288" text-anchor="middle" font-size="12.5" class="env">θ₀ · 基线轮转</text>
+              <path class="tree-edge" d="M214 186 H282" marker-end="url(#head-line)"/>
+              <text id="tree-title" x="300" y="302" class="tag">DISCOVERY TREE · 构造世界 T₁</text>
+            </g>
+            <g class="station tree">
+              <path class="tree-edge" d="M334 176 L401 152 M334 196 L401 232"/>
+              <path class="tree-edge construct" d="M444 146 H502"/>
+              <path class="route baseline" d="M316 186 L422 146 M316 186 L422 240"/>
+              <path class="route stop" d="M316 186 L422 146"/>
+              <path class="route learned" d="M316 186 L422 146 H524"/>
+              <g class="node" data-node="root" tabindex="0" role="button" aria-label="查看 root 证据">
+                <circle class="node-ring" cx="316" cy="186" r="21"/><text class="node-id" x="316" y="190">root</text>
+                <title>原始 root 分数，作为归一化基准。</title>
+              </g>
+              <text x="316" y="226" text-anchor="middle" class="small">q = 0</text>
+              <g class="node" data-node="A1" tabindex="0" role="button" aria-label="查看 A1 分数出处">
+                <circle class="node-ring" cx="422" cy="146" r="19"/><text class="node-id" x="422" y="150">A1</text>
+                <title>复用原始弱分支分数；图中的节点和调度顺序为构造。</title>
+              </g>
+              <text id="node-a1-quality" class="node-score" data-score-node="A1" x="422" y="188" text-anchor="middle" font-size="14" font-weight="600">+1.08%</text>
+              <g class="node" data-node="A2" tabindex="0" role="button" aria-label="查看 A2 分数出处与构造连线">
+                <circle class="node-ring" cx="524" cy="146" r="21"/><text class="node-id" x="524" y="150">A2</text>
+                <title>A2 原本也是 root 的子分支。A1 → A2 是教学构造，不是逆向推断的历史 continuation。</title>
+              </g>
+              <text id="node-a2-quality" class="node-score env" data-score-node="A2" x="524" y="192" text-anchor="middle" font-size="18" font-weight="700">+7.78%</text>
+              <g class="node" data-node="B0" tabindex="0" role="button" aria-label="查看 B0 对照说明">
+                <circle class="node-ring" cx="422" cy="240" r="19"/><text class="node-id" x="422" y="244">B0</text>
+                <title>B0 是 root 测量的复用对照，不是额外观察到的 kernel attempt。</title>
+              </g>
+              <text class="node-score" data-score-node="B0" x="452" y="237" font-size="13" font-weight="600">0.00%</text>
+              <text class="node-score small" data-score-node="B0" x="452" y="254">复用 root 对照</text>
+            </g>
+
+            <!-- 02 reverse trace -->
+            <g class="station s1">
+              <rect class="card" x="642" y="84" width="466" height="236" rx="16" filter="url(#lift)"/>
+              <circle class="badge" cx="666" cy="110" r="12"/><text class="badge-n" x="666" y="114">02</text>
+              <text x="686" y="115" class="h">逆向追溯</text>
+              <text x="1088" y="114" text-anchor="end" class="tag">REVERSE TRACE</text>
+              <text x="666" y="144" class="small mono" font-size="10.5">gap → search → coverage → review</text>
+              <path d="M672 168 V284" stroke="#e9eaee" stroke-width="2"/>
+              <g font-size="12.5">
+                <g class="step" data-step="0"><circle class="step-dot" cx="672" cy="168" r="5"/><text x="688" y="172">保留结果</text></g>
+                <g class="step" data-step="1"><circle class="step-dot" cx="672" cy="197" r="5"/><text x="688" y="201">源码 / 父上下文</text></g>
+                <g class="step" data-step="2"><circle class="step-dot" cx="672" cy="226" r="5"/><text x="688" y="230">原始调用 / 计划</text></g>
+                <g class="step" data-step="3"><circle class="step-dot" cx="672" cy="255" r="5"/><text x="688" y="259">知识版本 / 正文</text></g>
+                <g class="step" data-step="4"><circle class="step-dot" cx="672" cy="284" r="5"/><text x="688" y="288">独立测量 / 证据</text></g>
+              </g>
+              <rect x="864" y="156" width="222" height="136" rx="12" fill="#f6f7f9"/>
+              <text x="882" y="182" class="tag">INVARIANTS</text>
+              <g font-size="12"><text x="882" y="210">原始事实不改写</text><text x="882" y="236">analyst 判断独立记录</text><text x="882" y="262">搜索不到 ≠ 证明不存在</text></g>
+            </g>
+
+            <!-- 03 freeze buffer -->
+            <g class="station s2">
+              <rect class="card" x="820" y="372" width="288" height="220" rx="16" filter="url(#lift)"/>
+              <circle class="badge" cx="844" cy="398" r="12"/><text class="badge-n" x="844" y="402">03</text>
+              <text x="864" y="403" class="h">冻结 Buffer</text>
+              <text x="1088" y="402" text-anchor="end" class="tag">FREEZE</text>
+              <text x="844" y="432" class="small">每轮只冻结一次，之后只读</text>
+              <rect x="842" y="448" width="244" height="44" rx="10" fill="#eef4fd" stroke="#c9dbf7"/>
+              <text x="860" y="476" class="mono env" font-size="15">T₁</text><text x="896" y="475" font-size="12">构造世界 01</text>
+              <g class="world-next"><rect x="842" y="500" width="244" height="44" rx="10" fill="#eef4fd" stroke="#c9dbf7"/>
+                <text x="860" y="528" class="mono env" font-size="15">T₂</text><text x="896" y="527" font-size="12">构造世界 02 · 第二轮加入</text></g>
+              <text x="844" y="572" class="small mono" font-size="10.5">attempts · worlds · reverse.jsonl</text>
+            </g>
+
+            <!-- 04 dream in replay -->
+            <g class="station s3">
+              <rect class="card" x="298" y="372" width="478" height="220" rx="16" filter="url(#lift)"/>
+              <circle class="badge" cx="322" cy="398" r="12"/><text class="badge-n" x="322" y="402">04</text>
+              <text x="342" y="403" class="h">梦境回放</text>
+              <text x="756" y="402" text-anchor="end" class="tag mid">0 次 KERNEL 执行</text>
+              <text x="322" y="432" class="small">Developer → Reviewer → replay · Objective = Q − 0.01 × C</text>
+              <g class="trial" data-trial-card="neutral">
+                <rect class="trial-card" x="318" y="446" width="140" height="78" rx="11"/>
+                <text x="332" y="470" class="mono" font-size="15">θ₀</text><text x="444" y="469" text-anchor="end" class="tag">BASE</text>
+                <text x="332" y="490" font-size="12">基线轮转</text>
+                <text id="score-neutral" x="332" y="513" class="mono" font-size="14">−0.00923</text>
+                <title>A1 → 新根分支 B0</title>
+              </g>
+              <g class="trial" data-trial-card="stop">
+                <rect class="trial-card" x="468" y="446" width="140" height="78" rx="11"/>
+                <text x="482" y="470" class="mono" font-size="15">θ₁</text><text x="594" y="469" text-anchor="end" class="tag">TRY</text>
+                <text x="482" y="490" font-size="12">过早停止</text>
+                <text id="score-stop" x="482" y="513" class="mono" font-size="14">+0.00077</text>
+                <title>减少成本，但错过增益</title>
+              </g>
+              <g class="trial" data-trial-card="continue">
+                <rect class="trial-card" x="618" y="446" width="140" height="78" rx="11"/>
+                <text x="632" y="470" class="mono mid" font-size="15">θ₂</text><text x="744" y="469" text-anchor="end" class="tag mid">BEST</text>
+                <text x="632" y="490" font-size="12" class="mid">续探已测优叶</text>
+                <text id="score-continue" x="632" y="513" class="mono mid" font-size="14">+0.05785</text>
+                <title>A1 → 预设延续 A2</title>
+              </g>
+              <text x="320" y="552" class="mono small">θ₀</text>
+              <rect x="344" y="545" width="220" height="7" rx="3.5" fill="#f1f2f4"/><rect id="baseline-bar" x="344" y="545" width="24" height="7" rx="3.5" fill="#c3c8d0"/>
+              <text id="baseline-quality" x="574" y="553" class="mono small">1.08%</text>
+              <text x="320" y="574" class="mono small mid">θ₂</text>
+              <rect x="344" y="567" width="220" height="7" rx="3.5" fill="#f1f2f4"/><rect id="candidate-bar" x="344" y="567" width="171" height="7" rx="3.5" fill="#7a52c7"/>
+              <text id="candidate-quality" x="574" y="575" class="mono small mid">7.78%</text>
+              <text x="756" y="550" text-anchor="end" class="small">同预算 2 → 2 · best quality</text>
+              <text id="quality-gain" x="756" y="576" text-anchor="end" class="mono mid" font-size="20" font-weight="600">+6.71pp</text>
+            </g>
+
+            <!-- 05 select & feedback -->
+            <g class="station s4">
+              <rect class="card" x="32" y="372" width="230" height="220" rx="16" filter="url(#lift)"/>
+              <circle class="badge" cx="56" cy="398" r="12"/><text class="badge-n" x="56" y="402">05</text>
+              <text x="76" y="403" class="h">择优反馈</text>
+              <text x="242" y="402" text-anchor="end" class="tag">SELECT</text>
+              <text x="52" y="436" class="tag">WORKING COPY</text>
+              <text id="selected-in-scene" x="52" y="462" font-size="15" font-weight="600" class="mid">θ₂ · 续探已测优叶</text>
+              <text id="feedback-label" x="52" y="486" class="small">validation 择优 → 控制下一轮</text>
+              <rect x="48" y="510" width="198" height="62" rx="10" fill="#fbf3e8"/>
+              <g transform="translate(62 524)" stroke="#b5701f" fill="none" stroke-width="1.4"><rect x="0" y="7" width="12" height="10" rx="2"/><path d="M3 7V4a3 3 0 0 1 6 0v3"/></g>
+              <text x="82" y="540" font-size="12" font-weight="600" class="warm">真实发布门 · 未达成</text>
+              <text x="62" y="560" font-size="10" class="warm">fresh replay + paired online → CAS</text>
+            </g>
+
+            <circle id="token" r="5" cx="0" cy="0" fill="#3273dc" stroke="#fff" stroke-width="2"/>
+            <text x="32" y="624" class="small" font-size="11">数值取自归档 node039/dsa-sparse-mla；A1 → A2 连线、调度顺序与 B0 对照为教学构造。真实 primary worlds = 0；本图不调用模型 / GPU，不晋级或发布 Knowledge。</text>
+          </svg>
+        </div>
+
+        <aside class="rail" aria-label="当前阶段与离线指标">
+          <div class="rail-act">
+            <span class="rail-round" id="round-label">round t = 1</span>
+            <strong id="phase-title">在线探索</strong>
+            <p id="phase-description" aria-live="polite"></p>
+          </div>
+          <dl class="rail-stats">
+            <div><dt>真实 Agent / GPU 调用</dt><dd class="real">0 / 0</dd></div>
+            <div><dt>buffer worlds</dt><dd id="world-count">1</dd></div>
+            <div><dt>replay Objective · budget 2</dt><dd id="objective-readout" class="dream">+0.05785</dd></div>
+          </dl>
+          <div class="rail-policy">
+            <span class="rail-k">selected working copy</span>
+            <strong id="selected-policy-label">θ₂ · 续探已测优叶</strong>
+            <p id="retention-note">首轮择优；下一轮使用同一策略。</p>
+          </div>
+        </aside>
+      </div>
+
+      <div class="controls">
+        <button id="play-button" class="ctl-play" type="button" aria-label="播放循环">
+          <svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h3v12H8zm5 0h3v12h-3z"/></svg>
+          <svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l10 6-10 6z"/></svg>
+        </button>
+        <div class="chips" role="group" aria-label="选择循环阶段">
+          <button data-phase-button="0" type="button">01 · 探索<i></i></button>
+          <button data-phase-button="1" type="button">02 · 追溯<i></i></button>
+          <button data-phase-button="2" type="button">03 · 冻结<i></i></button>
+          <button data-phase-button="3" data-dream type="button">04 · 梦境<i></i></button>
+          <button data-phase-button="4" data-dream type="button">05 · 反馈<i></i></button>
+        </div>
+        <select id="round-select" class="ctl" aria-label="选择外循环轮次"><option value="0">t = 1</option><option value="1">t = 2</option></select>
+        <button id="speed-button" class="ctl" type="button" aria-label="切换播放速度">1×</button>
+        <button id="export-button" class="ctl" type="button" aria-label="导出当前帧为 SVG">SVG ↓</button>
+      </div>
+
+      <p class="caption">
+        蓝色是历史：工作策略驱动固定 Agent 探索，每个结果被追溯到证据并<b>冻结一次</b>。紫色是梦境：候选策略在冻结的历史上回放，
+        因为每个节点的结果已记录，比较不花一次 kernel 执行。现任策略 θ₀ 也在候选集里，所以被选中的工作副本在本轮 buffer 上不会更差；
+        跨轮 buffer 会变，不承诺绝对分数单调上升。图中 01—05 是机制说明，replay 数值是真正运行本地代码的预计算结果。
+        可点击阶段、方向键切换，点击节点查看出处。
+      </p>
+    </section>
+
+    <section class="case-grid" aria-label="成功案例与真实实验边界">
+      <article class="case-card">
+        <div class="case-top"><span class="case-k">A · Constructed replay</span><span class="card-badge">数值真实 · 拓扑构造</span></div>
+        <h3>同预算，续探优叶更好。</h3>
+        <div class="case-metric"><strong id="case-gain">+6.71<span>pp</span></strong><span>world T₁ 的归一化 quality 差值<br>方向预算 2 → 2 · 新执行 0</span></div>
+        <p>复用 DSA sparse MLA 的原始分数，把兄弟分支改接成教学延续链。A1→A2、调度顺序和 B0 对照均为构造；不是新 kernel，也不是可发布策略。</p>
+      </article>
+      <article class="case-card">
+        <div class="case-top"><span class="case-k">B · Archived validation</span><span class="card-badge mid">旧 schema 1</span></div>
+        <h3>真实局部收益，也保留失败。</h3>
+        <div class="case-metric"><strong id="archived-validation" class="mid">−0.00931 → −0.00857</strong><span>Validation Objective</span></div>
+        <p>full-budget quality <code id="archived-quality">0.00579456</code> 不变。但 held-out 的 o-proj 质量回退，最终 <b>no_change</b>、未发布；局部改善不等于成功自进化。</p>
+      </article>
+      <article class="case-card">
+        <div class="case-top"><span class="case-k">C · Current evidence</span><span class="card-badge warm">正式门禁仍关闭</span></div>
+        <h3>世界不够，不能强行梦赢。</h3>
+        <div class="coverage"><div><strong id="coverage-attempts">1,498</strong><span>原始 attempts</span></div><div><strong id="coverage-diagnostic">337</strong><span>diagnostic worlds</span></div><div><strong id="coverage-primary">0</strong><span>primary worlds</span></div></div>
+        <p>需要分支、continuation、完整结果与最大预算覆盖；目前不满足正式支持门。</p>
+      </article>
+    </section>
+
+    <details class="evidence-panel" id="evidence-panel">
+      <summary><span>数据出处与构造边界</span><span class="evidence-summary">原始 world / 行号 / hash / 策略 / 指标 ↓</span></summary>
+      <div class="evidence-content">
+        <p><strong>必须分开读：</strong>线上/逆向/冻结/反馈是教学编排；三条候选策略为手写；只有离线 replay/evaluate 真正执行过。没有启动 Opus、GPU 或真实 outer cycle。</p>
+        <div class="source-table-wrap"><table><thead><tr><th>构造 world</th><th>原始 world（两个节点原本均来自 root）</th><th>worlds.jsonl 行号</th></tr></thead><tbody id="source-rows"></tbody></table></div>
+        <p>构造预算固定为 <code>2</code>、单 worker；正式 GLM7 的冻结预算是 <code>1, 2, 4, 6</code>。B0 只复用 root 测量，不伪造额外实测。原始 buffer、Attempt、测量和 Knowledge 均不修改；构造世界绝不合入正式 buffer。</p>
+        <p class="source-hash">原始 worlds.jsonl SHA-256：<code id="worlds-hash"></code></p>
+        <div class="evidence-links"><a href="case.js">查看冻结案例数据 ↗</a><a href="build_case.py">查看实际 replay 构造代码 ↗</a><a href="../../kernelwiki-rsi-v1-experiment.md">归档实测实验 ↗</a><a href="../../kernelwiki-rsi-v1.md">当前机制与资格门 ↗</a></div>
+      </div>
+    </details>
+    <footer><span>KernelWiki-RSI · Knowledge is the policy, history is the simulator.</span><span>Read-only illustration · no publication</span></footer>
+  </main>
+  <script src="case.js"></script>
+  <script src="player.js"></script>
+</body>
+</html>
