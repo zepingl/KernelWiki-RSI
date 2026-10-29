@@ -37,6 +37,8 @@ import shutil
 import tempfile
 import uuid
 
+from .._atomic import atomic_bytes as _atomic_bytes, fsync_dir as _fsync_dir
+
 try:
     import fcntl
 except ImportError:            # pragma: no cover - POSIX only in practice
@@ -132,36 +134,6 @@ class Candidate(object):
 def _write_json(path: str, document) -> None:
     _atomic_bytes(path, json.dumps(document, ensure_ascii=False, indent=2,
                                    sort_keys=True).encode("utf-8"))
-
-
-def _atomic_bytes(path: str, payload: bytes) -> None:
-    directory = os.path.dirname(path) or "."
-    os.makedirs(directory, exist_ok=True)
-    fd, temporary = tempfile.mkstemp(prefix="." + os.path.basename(path) + ".", dir=directory)
-    try:
-        with os.fdopen(fd, "wb") as handle:
-            handle.write(payload)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, path)
-        temporary = ""
-    finally:
-        if temporary and os.path.exists(temporary):
-            os.unlink(temporary)
-    _fsync_dir(directory)
-
-
-def _fsync_dir(path: str) -> None:
-    try:
-        fd = os.open(path, os.O_RDONLY)
-    except OSError:
-        return
-    try:
-        os.fsync(fd)
-    except OSError:
-        pass
-    finally:
-        os.close(fd)
 
 
 def _replace_directory(staging: str, destination: str) -> None:
