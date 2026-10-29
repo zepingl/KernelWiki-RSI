@@ -19,9 +19,17 @@ class KnowledgeError(ValueError):
 TASK_FIELDS = frozenset({"operator", "backend", "gfx", "dtype", "bottleneck", "shape"})
 OBSERVATION_FIELDS = frozenset({"node_kind", "measurement_status", "parent_gain",
                                 "stagnation", "remaining_budget"})
-NUMERIC_FIELDS = frozenset({"parent_gain", "stagnation", "remaining_budget"})
+NUMERIC_FIELDS = frozenset({"parent_gain", "stagnation", "remaining_budget", "round", "best_gain", "slot_index"})
 CATEGORICAL_VALUES = {"node_kind": {"root", "leaf"},
-                      "measurement_status": {"qualified", "failed", "unknown"}}
+                      "measurement_status": {"qualified", "failed", "unknown"},
+                      "mode": {"normal", "deep"}}
+# Policy v2 decides one expansion: how many planned directions to dispatch, which ones, and when to stop.
+GLOBAL_FIELDS = frozenset({"stagnation", "remaining_budget", "round", "best_gain"})
+SLOT_FIELDS = frozenset({"slot_index", "specialty", "mode", "knowledge"})
+SET_FIELDS = frozenset({"knowledge"})
+V1_EFFECTS = frozenset({"prefer", "defer", "stop"})
+V2_EFFECTS = frozenset({"width", "select", "skip", "stop"})
+MAX_WIDTH = 8
 
 
 def canonical(value) -> bytes:
@@ -112,9 +120,12 @@ class Condition:
     value: str | int | float | tuple[str, ...]
 
     def __post_init__(self):
-        if self.field not in TASK_FIELDS | OBSERVATION_FIELDS:
+        if self.field not in TASK_FIELDS | OBSERVATION_FIELDS | GLOBAL_FIELDS | SLOT_FIELDS:
             raise KnowledgeError(f"policy field is not observable: {self.field}")
-        if self.field in NUMERIC_FIELDS:
+        if self.field in SET_FIELDS:
+            if self.op != "contains" or not isinstance(self.value, str) or not self.value:
+                raise KnowledgeError("set conditions support contains with one non-empty member")
+        elif self.field in NUMERIC_FIELDS:
             if self.op not in {"eq", "gte", "lte"}:
                 raise KnowledgeError("numeric conditions support eq/gte/lte")
             finite(self.value)
@@ -133,6 +144,8 @@ class Condition:
         actual = values.get(self.field)
         if actual is None or actual == "":
             return False
+        if self.op == "contains":
+            return self.value in actual
         if self.op == "in":
             return actual in self.value
         if self.op == "gte":
@@ -163,22 +176,27 @@ def conditions(values, fields):
 class PolicyRule:
     when: tuple[Condition, ...]
     effect: str
+    value: int | None = None
 
     def __post_init__(self):
-        if self.effect not in {"prefer", "defer", "stop"}:
-            raise KnowledgeError("policy effect must be prefer, defer, or stop")
+        if self.effect not in V1_EFFECTS | V2_EFFECTS:
+            raise KnowledgeError("policy effect must be prefer, defer, stop, width, select, or skip")
+        scope = {"prefer": OBSERVATION_FIELDS, "defer": OBSERVATION_FIELDS, "stop": GLOBAL_FIELDS,
+                 "width": GLOBAL_FIELDS, "select": GLOBAL_FIELDS | SLOT_FIELDS,
+                 "skip": GLOBAL_FIELDS | SLOT_FIELDS}[self.effect]
         if not isinstance(self.when, tuple) or any(
-                not isinstance(condition, Condition) or condition.field not in OBSERVATION_FIELDS
-                for condition in self.when):
-            raise KnowledgeError("invalid observation conditions")
-        if self.effect == "stop" and any(condition.field not in {"stagnation", "remaining_budget"}
-                                         for condition in self.when):
-            raise KnowledgeError("stop may depend only on global prefix observations")
+                not isinstance(condition, Condition) or condition.field not in scope for condition in self.when):
+            raise KnowledgeError(f"invalid observation conditions for {self.effect}")
+        if (self.effect == "width") != (self.value is not None):
+            raise KnowledgeError("only a width rule carries a value")
+        if self.value is not None and (type(self.value) is not int or not 1 <= self.value <= MAX_WIDTH):
+            raise KnowledgeError(f"width must be an integer in [1, {MAX_WIDTH}]")
 
     @classmethod
     def from_dict(cls, value):
-        strict_fields(value, {"when", "effect"}, {"when", "effect"})
-        return cls(conditions(value["when"], OBSERVATION_FIELDS), value["effect"])
+        strict_fields(value, {"when", "effect", "value"}, {"when", "effect"})
+        fields = GLOBAL_FIELDS | SLOT_FIELDS | (OBSERVATION_FIELDS if value["effect"] in {"prefer", "defer"} else set())
+        return cls(conditions(value["when"], fields), value["effect"], value.get("value"))
 
 
 @dataclass(frozen=True)
@@ -213,7 +231,10 @@ class KnowledgeRecord:
                    PolicyRule.from_dict(value["policy_rule"]) if value.get("policy_rule") is not None else None)
 
     def to_dict(self):
-        return json.loads(canonical(asdict(self)))
+        value = json.loads(canonical(asdict(self)))
+        if value["policy_rule"] is not None and value["policy_rule"]["value"] is None:
+            del value["policy_rule"]["value"]  # v1 cards keep their exact serialized form
+        return value
 
     def matches(self, state: KernelState):
         values = asdict(state)
@@ -226,10 +247,15 @@ class KnowledgePolicy:
     rule_ids: tuple[str, ...] = ()
     top_k: int = 3
     workers: int = 2
+    max_width: int | None = None
 
     def __post_init__(self):
-        if type(self.schema_version) is not int or self.schema_version != 1:
+        if type(self.schema_version) is not int or self.schema_version not in (1, 2):
             raise KnowledgeError("unsupported policy schema")
+        if (self.schema_version == 2) != (self.max_width is not None):
+            raise KnowledgeError("max_width belongs to policy schema 2 only")
+        if self.max_width is not None and (type(self.max_width) is not int or not 1 <= self.max_width <= MAX_WIDTH):
+            raise KnowledgeError(f"max_width must be an integer in [1, {MAX_WIDTH}]")
         if type(self.top_k) is not int or not 1 <= self.top_k <= 3:
             raise KnowledgeError("top_k must be in [1, 3]")
         if type(self.workers) is not int or not 1 <= self.workers <= 2:
@@ -247,7 +273,10 @@ class KnowledgePolicy:
         return cls(**{**value, "rule_ids": tuple(value["rule_ids"])})
 
     def to_dict(self):
-        return json.loads(canonical(asdict(self)))
+        value = json.loads(canonical(asdict(self)))
+        if value["max_width"] is None:
+            del value["max_width"]  # schema 1 keeps its exact serialized form
+        return value
 
 
 def validate_policy(policy: KnowledgePolicy, records: tuple[KnowledgeRecord, ...]):
@@ -259,9 +288,11 @@ def validate_policy(policy: KnowledgePolicy, records: tuple[KnowledgeRecord, ...
         record = by_id.get(rule_id)
         if record is None or record.policy_rule is None:
             raise KnowledgeError(f"missing executable rule: {rule_id}")
+        if record.policy_rule.effect not in (V1_EFFECTS if policy.schema_version == 1 else V2_EFFECTS):
+            raise KnowledgeError(f"rule {rule_id} does not belong to policy schema {policy.schema_version}")
         signature = (record.applies_to, record.policy_rule.when)
-        previous = signatures.setdefault(signature, record.policy_rule.effect)
-        if previous != record.policy_rule.effect:
+        previous = signatures.setdefault(signature, (record.policy_rule.effect, record.policy_rule.value))
+        if previous != (record.policy_rule.effect, record.policy_rule.value):
             raise KnowledgeError("identical rule conditions have conflicting effects")
 
 
