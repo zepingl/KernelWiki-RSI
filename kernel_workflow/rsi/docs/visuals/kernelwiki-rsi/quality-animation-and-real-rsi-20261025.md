@@ -6,7 +6,7 @@
 > 本次范围：只读核对并新增本文；不改案例、objective、正式 buffer 或活动 Knowledge，不启动模型/GPU 实验。
 
 本文记录本轮关于动图、quality-only objective 和真实 KernelWiki 自进化的分析。
-目标函数、最优策略与晋级约束的完整论证见[已有分析](replay-objective-analysis.md)；
+目标函数、最优策略与晋级约束的完整论证见[已有分析](../../replay-objective-analysis.md)；
 下文明确区分**已核实事实**、**机制推论**和**尚未执行的实验建议**。
 
 ## 1. 直接回答：当前动图是不是只看 kernel perf？
@@ -29,7 +29,7 @@
 
 ### 2.1 当前案例采用的性能指标
 
-[归档测量适配器](../reverse_engineering/sources/archive.py)为选中的 DSA sparse MLA 历史测量计算：
+[归档测量适配器](../../../reverse_engineering/sources/archive.py)为选中的 DSA sparse MLA 历史测量计算：
 
 ```text
 L_process = Σ_case calls_case × optimized_ms_case
@@ -40,7 +40,7 @@ Q         = S_best / S_root − 1 = L_root / L_best − 1
 
 - `S` 的指标名称是 `inverse-call-weighted-latency-v2`，越大越好。
 - `L` 是固定 workload 的调用次数加权 kernel GPU 时间，不是单次调用延迟。
-- [Harness](../harness.py)只将已到达的 qualified 测量用于最佳质量；根节点也参与，初始 `Q=0`。
+- [Harness](../../../harness.py)只将已到达的 qualified 测量用于最佳质量；根节点也参与，初始 `Q=0`。
 - `Q` 是无量纲的 root-relative 增益，不含预算惩罚、并行奖励或 Knowledge 版本数量。
 - 归档的 `e2e_verified=false`；没有据此验证 GLM 端到端吞吐、tokens/s 或整体模型加速。
 
@@ -74,7 +74,7 @@ Q         = S_best / S_root − 1 = L_root / L_best − 1
 
 ## 3. 为什么保留案例，却不能把它改称“真实自进化”
 
-[现有动图](../../docs/visuals/kernelwiki-rsi/index.html)与[构造代码](../../docs/visuals/kernelwiki-rsi/build_case.py)明确保留以下边界：
+[现有动图](index.html)与[构造代码](build_case.py)明确保留以下边界：
 
 1. A1、A2 在原始记录中是 root 的兄弟节点；图中的 `A1 → A2` 是教学构造，不是 reverse engineering 恢复出的 continuation。
 2. B0 复用 root 测量，不代表额外发生过一次真实优化尝试。
@@ -98,7 +98,7 @@ objective:
   beta_parallel: 0
 ```
 
-[Objective 实现](../replay_buffer/objective.py)已支持这两个系数为零；此时每条 trace 的 `J=Q`。
+[Objective 实现](../../../replay_buffer/objective.py)已支持这两个系数为零；此时每条 trace 的 `J=Q`。
 当前正式 manifest 和现有案例仍为 `beta_cost=0.01`、`beta_parallel=0`。
 
 候选产生前还必须选择预算口径：
@@ -156,9 +156,9 @@ worlds.jsonl SHA-256:
 缺口计数相互重叠。上述事实不证明历史工作从未长期探索，
 只证明当前可核实的 source/context provenance 尚不能构成可重放的延续关系。
 
-[Primary gate](../replay_buffer/cohorts.py)要求至少两个分支、至少一个 continuation、
+[Primary gate](../../../replay_buffer/cohorts.py)要求至少两个分支、至少一个 continuation、
 记录成本覆盖最大冻结预算，且没有 unknown outcome；已测量失败可以保留，未知不能伪装为成功。
-[Inner loop](../loop/inner.py)因此返回 `insufficient_primary_support`，Agent calls 为 0，
+[Inner loop](../../../loop/inner.py)因此返回 `insufficient_primary_support`，Agent calls 为 0，
 保留 incumbent、不评估 test、不发布。
 **仅置零系数，甚至只把预算降为 1，均不能解除当前的结构支持缺口。**
 
@@ -222,11 +222,11 @@ buffer 身份与冻结协议、方向预算/模型调用/GPU 时间、候选拒�
 
 ## 8. 核对入口与本次变更边界
 
-- [现有案例说明](../../docs/visuals/kernelwiki-rsi/README.md)、[冻结案例数据](../../docs/visuals/kernelwiki-rsi/case.js)：数值来源、构造边界和两轮选策。
-- [Harness](../harness.py)、[测量归档适配器](../reverse_engineering/sources/archive.py)、[Replay Objective](../replay_buffer/objective.py)：quality、物理指标与目标函数。
-- [Cohorts](../replay_buffer/cohorts.py)、[Evaluate / qualifies](../replay_buffer/evaluate.py)：支持、配对、聚合与非回退。
-- [Inner](../loop/inner.py)、[Outer](../loop/outer.py)、[Qualification / release](../loop/qualification.py)：工作策略选择、在线反馈及发布边界。
-- [工程设计](../../../docs/kernelwiki-rsi-v1.md)、[归档实验说明](../../../docs/kernelwiki-rsi-v1-experiment.md)、[完整 objective 分析](replay-objective-analysis.md)：更完整的设计与原始工件索引。
+- [现有案例说明](README.md)、[冻结案例数据](case.js)：数值来源、构造边界和两轮选策。
+- [Harness](../../../harness.py)、[测量归档适配器](../../../reverse_engineering/sources/archive.py)、[Replay Objective](../../../replay_buffer/objective.py)：quality、物理指标与目标函数。
+- [Cohorts](../../../replay_buffer/cohorts.py)、[Evaluate / qualifies](../../../replay_buffer/evaluate.py)：支持、配对、聚合与非回退。
+- [Inner](../../../loop/inner.py)、[Outer](../../../loop/outer.py)、[Qualification / release](../../../loop/qualification.py)：工作策略选择、在线反馈及发布边界。
+- [工程设计](../../../../../docs/kernelwiki-rsi-v1.md)、[归档实验说明](../../../../../docs/kernelwiki-rsi-v1-experiment.md)、[完整 objective 分析](../../replay-objective-analysis.md)：更完整的设计与原始工件索引。
 
 本次仅新增时间戳分析文档；保留现有案例、配置、正式历史和活动 Knowledge。
 真实实验的下一道门仍是 fresh 小规模校准与可验证的 branching/continuation 数据支持，不是修改展示数字。
