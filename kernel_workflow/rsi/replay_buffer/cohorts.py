@@ -28,9 +28,29 @@ def tree_gaps(tree, budget):
     return gaps
 
 
-def qualification_gaps(world, budget):
+def slot_mode(tree, node):
+    slots = tree.expansion(node).plan.slots
+    return slots[node.slot].mode if node.slot < len(slots) else "normal"
+
+
+def episode_gaps(tree, budget):
+    """Policy schema 2 replays a tree's recorded expansions; each needs a measured parent and known slots."""
+    nodes = [node for node in tree.nodes.values() if node.expansion is not None]
+    gaps = []
+    if not tree.expansions:
+        gaps.append("no recorded expansion")
+    if sum(2 if slot_mode(tree, node) == "deep" else 1 for node in nodes) < budget:
+        gaps.append("recorded cost does not cover the largest budget")
+    if any(tree.outcome(node.id).status == "unknown" for node in nodes):
+        gaps.append("unknown evaluation outcomes")
+    if any(tree.outcome(expansion.parents[0]).status != "qualified" for expansion in tree.expansions):
+        gaps.append("unmeasured expansion parent")
+    return gaps
+
+
+def qualification_gaps(world, budget, episodes=False):
     if isinstance(world, TreeView):
-        return tree_gaps(world, budget)
+        return episode_gaps(world, budget) if episodes else tree_gaps(world, budget)
     nodes = [node for branch in world.branches for node in branch]
     gaps = []
     if len(world.branches) < 2 or not any(len(branch) > 1 for branch in world.branches):
@@ -42,13 +62,16 @@ def qualification_gaps(world, budget):
     return gaps
 
 
-def cohorts(worlds, budgets=DEFAULT_BUDGETS, traces="attempts.jsonl"):
+def cohorts(worlds, budgets=DEFAULT_BUDGETS, traces="attempts.jsonl", episodes=False):
     if not budgets or any(type(budget) is not int or budget < 1 for budget in budgets):
         raise KnowledgeError("cohorts require frozen positive direction budgets")
-    excluded = {world.id: gaps for world in worlds if (gaps := qualification_gaps(world, max(budgets)))}
+    excluded = {world.id: gaps for world in worlds
+                if (gaps := qualification_gaps(world, max(budgets), episodes=episodes))}
+    rule = ("measured parents + complete slot outcomes + largest recorded cost" if episodes else
+            "branching + continuation + complete outcomes + largest recorded cost before policy evaluation")
     return {"all_traces": traces, "diagnostic": [world.id for world in worlds],
             "primary": [world.id for world in worlds if world.id not in excluded], "excluded": excluded,
-            "rule": "branching + continuation + complete outcomes + largest recorded cost before policy evaluation"}
+            "rule": rule}
 
 
 def split_worlds(worlds, splits=None):

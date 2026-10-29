@@ -3,6 +3,7 @@
 from dataclasses import asdict, dataclass, replace
 
 from kernelwiki.knowledge import (
+    MAX_WIDTH,
     KernelState,
     KnowledgeError,
     KnowledgePolicy,
@@ -12,7 +13,7 @@ from kernelwiki.knowledge import (
     validate_policy,
 )
 
-INTERPRETER_VERSION = "knowledge-policy-v2"
+INTERPRETER_VERSION = "knowledge-policy-v3"
 
 
 @dataclass(frozen=True)
@@ -40,6 +41,40 @@ class Action:
     parents: tuple[str, ...] = ()
     rule_ids: tuple[str, ...] = ()
     reason: str = "baseline_rotation"
+
+
+@dataclass(frozen=True)
+class SlotView:
+    """One planned direction as known before dispatch: its knowledge is what the plan pointed to."""
+    slot_index: int
+    specialty: str
+    mode: str
+    knowledge: frozenset[str] = frozenset()
+
+
+@dataclass(frozen=True)
+class ExpansionObservation:
+    state: KernelState
+    round: int
+    stagnation: int
+    remaining_budget: int
+    best_gain: float
+    slots: tuple[SlotView, ...]
+
+
+@dataclass(frozen=True)
+class ExpansionAction:
+    slots: tuple[int, ...] = ()
+    rule_ids: tuple[str, ...] = ()
+    reason: str = "dispatch_plan"
+
+    @property
+    def stop(self):
+        return not self.slots
+
+
+def slot_cost(slot):
+    return 2 if slot.mode == "deep" else 1
 
 
 class Rollout:
@@ -160,6 +195,48 @@ class Policy:
     @property
     def revision(self):
         return digest(self.to_dict())
+
+    def select_expansion(self, observation):
+        """Policy schema 2: stop, then skip, then select, then width, within the remaining budget.
+        Without rules every planned direction is dispatched, which is what the recorded lane did."""
+        rules = [] if self.neutral else [record for record in self.records
+                 if record.id in self.knowledge.rule_ids and record.matches(observation.state)]
+        rules.sort(key=lambda record: (-(len(record.applies_to) + len(record.policy_rule.when)), record.id))
+        rules = rules[:self.knowledge.top_k]
+        values = {"stagnation": observation.stagnation, "remaining_budget": observation.remaining_budget,
+                  "round": observation.round, "best_gain": observation.best_gain}
+        holds = lambda record, extra=None: all(condition.matches({**values, **(extra or {})})
+                                               for condition in record.policy_rule.when)
+        for record in rules:
+            if record.policy_rule.effect == "stop" and holds(record):
+                return ExpansionAction((), (record.id,), "matched_stop")
+        used, chosen = [], []
+        for slot in observation.slots:
+            fields = {"slot_index": slot.slot_index, "specialty": slot.specialty, "mode": slot.mode,
+                      "knowledge": slot.knowledge}
+            skipped = [record.id for record in rules if record.policy_rule.effect == "skip" and holds(record, fields)]
+            selected = [record.id for record in rules if record.policy_rule.effect == "select" and holds(record, fields)]
+            used += skipped
+            if not skipped:
+                chosen.append((slot, selected))
+        if any(selected for _, selected in chosen):
+            chosen = [(slot, selected) for slot, selected in chosen if selected]
+            used += [rule_id for _, selected in chosen for rule_id in selected]
+        width = self.knowledge.max_width or MAX_WIDTH
+        for record in rules:
+            if record.policy_rule.effect == "width" and holds(record):
+                width = record.policy_rule.value
+                used.append(record.id)
+                break
+        dispatched, budget = [], observation.remaining_budget
+        for slot, _ in chosen[:width]:
+            if slot_cost(slot) <= budget:
+                dispatched.append(slot.slot_index)
+                budget -= slot_cost(slot)
+        if not dispatched:
+            return ExpansionAction((), tuple(dict.fromkeys(used)), "nothing_dispatchable")
+        return ExpansionAction(tuple(dispatched), tuple(dict.fromkeys(used)),
+                               "matched_rules" if used else "dispatch_plan")
 
     def select(self, observation, knowledge_snapshot=None):
         if knowledge_snapshot is not None:

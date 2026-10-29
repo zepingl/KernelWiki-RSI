@@ -22,6 +22,7 @@ from ..evidence import (
     write_json,
 )
 from ..harness import INTERPRETER_VERSION, Policy
+from ..replay_buffer.cohorts import cohorts, kernel_of
 from ..replay_buffer.evaluate import evaluate, qualifies
 from ..replay_buffer.objective import ReplayObjective
 from ..replay_buffer.store import open_buffer
@@ -58,6 +59,25 @@ def _check_frozen(code, paths, pool, pool_ref):
                 raise KnowledgeError(f"frozen implementation changed: {name}")
     except (KnowledgeError, OSError) as error:
         raise FrozenExperimentChanged(str(error)) from error
+
+
+def _tree_training_input(trees, result):
+    """Recorded episodes: per-step plans, selections and revealed outcomes; citable evidence is the measures'."""
+    evidence, examples = {}, []
+    for tree in sorted(trees, key=lambda item: (kernel_of(item), item.id)):
+        for measures in tree.measures.values():
+            for measure in measures:
+                for item in measure.evidence:
+                    evidence[canonical(asdict(item))] = item
+        steps = [{"round": position, "parent_quality": tree.outcome(expansion.parents[0]).status,
+                  "slots": [asdict(slot) for slot in expansion.plan.slots], "dispatched": expansion.plan.dispatched}
+                 for position, expansion in enumerate(tree.expansions, 1)]
+        examples.append({"tree": tree.id, "kernel": kernel_of(tree), "state": asdict(tree.tree.task), "steps": steps,
+                         "trajectories": [trace for trace in result["traces"] if trace["world_id"] == tree.id],
+                         "evidence": [asdict(item) for measure in tree.measures[tree.root.id]
+                                      for item in measure.evidence]})
+    return {"summary": result["summary"], "qualification": result["qualification"], "examples": examples,
+            "reverse_evidence": [], "sample_scope": "all primary training episodes and all frozen budgets"}, evidence
 
 
 def _training_input(worlds, result, reverse_traces=()):
@@ -110,7 +130,8 @@ def _candidate(proposal, incumbent, allowed_evidence):
     return Policy(knowledge, tuple(records.values()))
 
 
-def evolve(pool, wiki, output, *, agent=None, publish=False, max_candidates=4, progress=None, policy=None):
+def evolve(pool, wiki, output, *, agent=None, publish=False, max_candidates=4, progress=None, policy=None,
+           episodes=None, require_all_kernels=True):
     if publish:
         raise KnowledgeError("inner evolution never publishes; final cycle qualification requires fresh holdout and paired online evidence")
     if type(max_candidates) is not int or not 1 <= max_candidates <= 4:
@@ -125,13 +146,20 @@ def evolve(pool, wiki, output, *, agent=None, publish=False, max_candidates=4, p
     incumbent = Policy.from_dict(policy.to_dict(), snapshot.records) if policy else Policy(snapshot.policy, snapshot.records)
     objective = ReplayObjective(**manifest["objective"])
     budgets = tuple(manifest["budgets"])
-    primary = buffer.select(cohort="primary")
-    partitions = {name: tuple(world for world in primary if world.kernel in names)
+    if episodes:
+        # Policy schema 2 replays recorded expansions; its cohort is fixed from the frozen pool before any candidate.
+        frozen_cohorts = cohorts(buffer.trees, budgets, traces="trace.jsonl", episodes=True)
+        primary = tuple(tree for tree in buffer.trees if tree.id in set(frozen_cohorts["primary"]))
+        worlds = buffer.trees
+    else:
+        frozen_cohorts = manifest["cohorts"]
+        primary = buffer.select(cohort="primary")
+    partitions = {name: tuple(world for world in primary if kernel_of(world) in names)
                   for name, names in manifest["splits"].items()}
-    missing = {name: sorted(set(manifest["splits"][name]) - {world.kernel for world in partitions[name]})
+    missing = {name: sorted(set(manifest["splits"][name]) - {kernel_of(world) for world in partitions[name]})
                for name in ("train", "validation")}
     missing = {name: values for name, values in missing.items() if values}
-    if missing or not partitions["train"] or not partitions["validation"]:
+    if (missing and require_all_kernels) or not partitions["train"] or not partitions["validation"]:
         result = {"status": "insufficient_primary_support", "reason": "branching, continuation, complete outcomes and budget coverage are required",
                   "missing_primary_kernels": missing, "primary_worlds": len(primary), "diagnostic_worlds": len(worlds),
                   "knowledge_revision": snapshot.revision, "policy_revision": incumbent.revision,
@@ -145,7 +173,9 @@ def evolve(pool, wiki, output, *, agent=None, publish=False, max_candidates=4, p
     frozen = {"schema_version": 2, "pool": asdict(pool_ref), "knowledge_revision": snapshot.revision,
               "policy_revision": incumbent.revision, "interpreter": INTERPRETER_VERSION, "metric": "root-relative-qualified-gain-v2",
               "model": MODEL, "effort": EFFORT, "budgets": budgets, "objective": asdict(objective),
-              "splits": manifest["splits"], "cohorts": manifest["cohorts"], "max_candidates": max_candidates,
+              "splits": manifest["splits"], "cohorts": frozen_cohorts, "max_candidates": max_candidates,
+              "episodes": episodes, "missing_primary_kernels": missing,
+              "scope": "diagnostic: not every split kernel has primary support" if missing else "complete",
               "test_role": "historical regression only; no test evaluation or release in an inner round",
               "code": {name: reference(path).sha256 for name, path in paths.items()}}
     write_json(destination / "manifest.json", frozen)
@@ -164,10 +194,15 @@ def evolve(pool, wiki, output, *, agent=None, publish=False, max_candidates=4, p
             stream.write(payload)
     _check_frozen(frozen["code"], paths, pool, pool_ref)
     write_json(destination / "incumbent.json", incumbent.to_dict())
-    incumbent_train = evaluate(partitions["train"], incumbent, budgets, objective)
+    incumbent_train = evaluate(partitions["train"], incumbent, budgets, objective, episodes=episodes)
     write_json(destination / "incumbent-train.json", incumbent_train)
-    reverse_traces = buffer.reverse_reports(manifest["splits"]["train"])
-    training, allowed_evidence = _training_input(partitions["train"], incumbent_train, reverse_traces)
+    if episodes:
+        training, allowed_evidence = _tree_training_input(partitions["train"], incumbent_train)
+    else:
+        reverse_traces = buffer.reverse_reports(manifest["splits"]["train"])
+        training, allowed_evidence = _training_input(partitions["train"], incumbent_train, reverse_traces)
+    examples = (lambda result: _tree_training_input(partitions["train"], result)[0]["examples"]) if episodes else \
+        (lambda result: _training_input(partitions["train"], result)[0]["examples"])
     agent = agent or RuntimeAgent(roles=ROLES)
     calls = 0
 
@@ -209,13 +244,13 @@ def evolve(pool, wiki, output, *, agent=None, publish=False, max_candidates=4, p
                     if review["decision"] == "reject":
                         receipt.update(status="review_rejected", reasons=review["reasons"])
                     else:
-                        train_result = evaluate(partitions["train"], candidate, budgets, objective)
+                        train_result = evaluate(partitions["train"], candidate, budgets, objective, episodes=episodes)
                         write_json(destination / f"candidate-{index}-train.json", train_result)
                         if train_result["qualification"]["eligible"] and incumbent_train["qualification"]["eligible"]:
                             candidates.append((index, candidate))
                         receipt.update(status="replayed" if train_result["qualification"]["eligible"] else "unsupported_replay",
                                        training=train_result["summary"], qualification=train_result["qualification"],
-                                       training_examples=_training_input(partitions["train"], train_result)[0]["examples"])
+                                       training_examples=examples(train_result))
                         if qualifies(train_result, editing_train):
                             editing_base, editing_train = candidate, train_result
             except FrozenExperimentChanged:
@@ -237,19 +272,20 @@ def evolve(pool, wiki, output, *, agent=None, publish=False, max_candidates=4, p
         write_json(destination / "result.json", result)
         raise
     _check_frozen(frozen["code"], paths, pool, pool_ref)
-    baseline_validation = evaluate(partitions["validation"], incumbent, budgets, objective)
+    baseline_validation = evaluate(partitions["validation"], incumbent, budgets, objective, episodes=episodes)
     write_json(destination / "incumbent-validation.json", baseline_validation)
     selected = None
     best = baseline_validation["summary"]["objective"]
     for index, candidate in candidates:
-        validation = evaluate(partitions["validation"], candidate, budgets, objective)
+        validation = evaluate(partitions["validation"], candidate, budgets, objective, episodes=episodes)
         write_json(destination / f"candidate-{index}-validation.json", validation)
         if qualifies(validation, baseline_validation) and validation["summary"]["objective"] > best + 1e-12:
             selected = (index, candidate, validation)
             best = validation["summary"]["objective"]
     working = selected[1] if selected else incumbent
     write_json(destination / "selected-policy.json", working.to_dict())
-    result = {"status": "working_policy_selected" if selected else "no_change",
+    result = {"scope": frozen["scope"], "missing_primary_kernels": missing,
+              "status": "working_policy_selected" if selected else "no_change",
               "knowledge_revision": snapshot.revision, "policy_revision": working.revision,
               "selected": selected[0] if selected else None, "published": False,
               "opportunities": receipts, "test_evaluated": False, "agent_calls": calls,

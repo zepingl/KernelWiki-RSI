@@ -77,6 +77,10 @@ def main(argv=None):
     evolver.add_argument("--publish", action="store_true", help="rejected legacy option; use release after a qualified cycle")
     evolver.add_argument("--policy")
     evolver.add_argument("--max-candidates", type=int, default=4)
+    evolver.add_argument("--episodes", choices=["step", "truncate"],
+                         help="policy schema 2 over recorded expansions of the pool's discovery trees")
+    evolver.add_argument("--diagnostic", action="store_true",
+                         help="run even when some split kernels lack primary support; never a qualification")
     evolver.add_argument("--node")
     evolver.add_argument("--claude")
     evolver.add_argument("--agent-timeout", type=int, default=300)
@@ -176,7 +180,8 @@ def main(argv=None):
         elif args.command == "evolve":
             result = evolve(args.pool, args.wiki, args.output,
                             agent=agent, policy=working_policy(), max_candidates=args.max_candidates,
-                            publish=args.publish, progress=progress)
+                            publish=args.publish, progress=progress, episodes=args.episodes,
+                            require_all_kernels=not args.diagnostic)
             result = {key: value for key, value in result.items() if key not in {"opportunities", "artifacts"}}
         elif args.command == "project-kernelwiki":
             from .evidence import write_jsonl

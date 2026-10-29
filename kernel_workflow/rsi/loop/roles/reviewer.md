@@ -17,3 +17,7 @@ prove policy improvement.
 Return one JSON object with `decision` equal to `approve` or `reject`, and a `reasons`
 array of concise, specific findings. A rejection must identify the narrower failed
 requirement so the Developer can respond to evidence rather than repeat a proposal.
+
+In episode mode (policy schema 2), reject rules that condition on unrevealed outcomes, select directions
+history never dispatched, or cite knowledge outside KernelWiki. Width, skip, select and stop are scheduling
+hypotheses; a replay gain is scored on the recorded trunk and still needs the online gate.

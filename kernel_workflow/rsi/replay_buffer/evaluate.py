@@ -7,14 +7,15 @@ from .objective import ReplayObjective, aggregate
 from .simulator import replay
 
 
-def evaluate(worlds, policy, budgets=DEFAULT_BUDGETS, objective=None):
+def evaluate(worlds, policy, budgets=DEFAULT_BUDGETS, objective=None, episodes=None):
     if (not budgets or len(set(budgets)) != len(budgets)
             or any(type(budget) is not int or budget < 1 for budget in budgets)):
         raise KnowledgeError("budgets must be unique positive integers")
     objective = objective or ReplayObjective()
     worlds = tuple(worlds)
-    traces = [replay(world, policy, budget) for world in worlds for budget in sorted(budgets)]
-    gaps = {world.id: found for world in worlds if (found := qualification_gaps(world, max(budgets)))}
+    traces = [replay(world, policy, budget, episodes) for world in worlds for budget in sorted(budgets)]
+    gaps = {world.id: found for world in worlds
+            if (found := qualification_gaps(world, max(budgets), episodes=episodes is not None))}
     unsupported = [{"world": trace["world_id"], "budget": trace["budget"], "stop_reason": trace["stop_reason"],
                     "unsupported_requests": trace["unsupported_requests"]}
                    for trace in traces if not trace["support_complete"]]

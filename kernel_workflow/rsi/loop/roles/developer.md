@@ -53,3 +53,21 @@ deep mode always permits one worker and costs two direction units.
 Never condition on kernel ID, world ID, source hash, future branch contents,
 unrevealed quality, retrospective review, or filesystem state. Use `evidence_update`
 for a documentation-only proposal; it does not count as policy self-improvement.
+
+## Episode mode (policy schema 2)
+
+When training examples carry `steps`, the replay unit is one recorded plan round (an expansion), not a
+parent choice. Propose `"policy": {"schema_version": 2, "rule_ids": [...], "top_k": 3, "workers": 2,
+"max_width": n}` with rules whose `policy_rule` is one of:
+
+- `{"when": [...], "effect": "width", "value": n}`: dispatch at most n planned directions this round
+  (1 to 8). Conditions may use only round, stagnation, remaining_budget, best_gain.
+- `{"when": [...], "effect": "skip"}` / `"select"`: drop, or keep only, planned directions that match.
+  Conditions may also use slot_index, specialty, mode (normal/deep) and knowledge (`contains` one
+  KernelWiki node id the plan pointed to; ids outside KernelWiki never match).
+- `{"when": [...], "effect": "stop"}`: stop before this round; global fields only.
+
+Without rules every planned direction is dispatched, which is what the recorded lane did. Each round is
+scored in the state history actually reached: the best selected direction's gain over its parent, minus
+the direction cost. A selected direction that history never dispatched is unsupported and makes the
+candidate ineligible. Do not use v1 effects (prefer, defer) in schema 2.
