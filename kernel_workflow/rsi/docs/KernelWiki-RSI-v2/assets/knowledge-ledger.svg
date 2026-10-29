@@ -1,0 +1,133 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1480 960" width="1480" height="960" data-generator="fireworks-tech-graph" data-schema-version="1" data-text-metrics="heuristic-v1" data-style-id="9" data-visual-theme="C4 Review Canvas" data-diagram-type="architecture" data-motion-scene="" data-semantic-profile="generic" data-semantic-valid="true" data-quality-profile="showcase" data-max-bends-per-edge="2" data-max-total-bends="8" data-max-route-stretch="1.35" data-max-bridged-crossings="0" data-min-node-gap="40.0" data-min-container-gutter="20.0" data-min-label-clearance="4.0" data-min-segment-length="16.0">
+  <defs>
+    <marker id="arrowA" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#365f56"/>
+    </marker>
+    <marker id="arrowB" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#a44a3f"/>
+    </marker>
+    <marker id="arrowC" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#356a8a"/>
+    </marker>
+    <marker id="arrowE" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#c06b35"/>
+    </marker>
+    <marker id="arrowF" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#7a5c99"/>
+    </marker>
+    <marker id="arrowG" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#b13e53"/>
+    </marker>
+    <marker id="arrowH" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#746b60"/>
+    </marker>
+    <pattern id="reviewGrid" width="24" height="24" patternUnits="userSpaceOnUse">
+      <circle cx="1" cy="1" r="0.8" fill="#8c7d68" fill-opacity="0.18"/>
+    </pattern>
+    <style>
+    text { font-family: 'Avenir Next', Avenir, 'Segoe UI', 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif; }
+    .title { font-size: 27px; font-weight: 700; fill: #24312f; }
+    .subtitle { font-size: 13px; font-weight: 500; fill: #6f756f; }
+    .section { font-size: 13px; font-weight: 700; fill: #5b5144; letter-spacing: 1.4px; }
+    .section-sub { font-size: 12px; font-weight: 500; fill: #756753; }
+    .node-title { font-weight: 700; fill: #24312f; }
+    .node-sub { font-weight: 500; fill: #5f665f; }
+    .node-type { font-size: 10px; font-weight: 700; fill: #8a6f43; letter-spacing: 0.08em; }
+    .arrow-label { font-size: 12px; font-weight: 600; fill: #4b5563; }
+    .legend { font-size: 12px; font-weight: 500; fill: #5f665f; }
+    .footnote { font-size: 12px; font-weight: 500; fill: #656b61; }
+    .metric-label { font-size: 8.5px; font-weight: 700; fill: #656b61; text-transform: uppercase; }
+    .metric-value { font-size: 9.5px; font-weight: 700; fill: #24312f; }
+    </style>
+  </defs>
+  <rect data-graph-role="background" width="1480.0" height="960.0" fill="#f7f2e8"/>
+  <rect data-graph-role="decoration" width="1480.0" height="960.0" fill="url(#reviewGrid)"/>
+  <text x="48.0" y="48" text-anchor="start" class="title">Knowledge Ledger: one KernelWiki node is the entry point (P1)</text>
+  <text x="48.0" y="72" text-anchor="start" class="subtitle">every query starts from a KernelWiki node; GEAK runs and AITER commits are its evidence. The ledger is a fold, not stored</text>
+  <g id="style-signature" data-graph-role="decoration" data-style-signature="c4-review-board">
+    <rect x="1256.0" y="22.0" width="176.0" height="34.0" rx="7" fill="#fffdf7" stroke="#8c7d68" stroke-width="1.2" stroke-dasharray="6 4"/>
+    <path d="M 1268.0 39.0 l 5 5 9 -11" fill="none" stroke="#365f56" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <text data-full-text="C4 · LEDGER VIEW" x="1290.0" y="36.0" font-size="8.5" font-weight="800" fill="#8a6f43">C4 · LEDGER VIEW</text>
+    <text data-full-text="DESIGN V3" x="1290.0" y="49.0" font-size="8" font-weight="700" fill="#5f665f">DESIGN V3</text>
+  </g>
+  <path id="l1-review-stroke" data-graph-role="decoration" data-owner="l1" d="M 740,250 L 740,380" fill="none" stroke="#365f56" stroke-width="0.9" stroke-dasharray="2.5,2" opacity="0.30" stroke-dashoffset="-1.15"/>
+  <path id="l1" data-graph-role="edge" data-edge-id="l1" data-source="prev" data-target="center" data-edge-kind="flow" data-topic-id="" data-flow="control" data-motion-role="" data-motion-stage="" data-motion-order="" data-protocol="parent" data-via="" data-critical-path-id="" data-critical-hop="" data-critical-hops="" data-critical="false" data-bends="0" data-route-stretch="1.0" data-bridges="" d="M 740,250 L 740,380" fill="none" stroke="#365f56" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowA)"/>
+  <path id="l2-review-stroke" data-graph-role="decoration" data-owner="l2" d="M 740,500 L 740,640" fill="none" stroke="#365f56" stroke-width="0.9" stroke-dasharray="2.5,2" opacity="0.30" stroke-dashoffset="-0.85"/>
+  <path id="l2" data-graph-role="edge" data-edge-id="l2" data-source="center" data-target="next" data-edge-kind="flow" data-topic-id="" data-flow="control" data-motion-role="" data-motion-stage="" data-motion-order="" data-protocol="child" data-via="" data-critical-path-id="" data-critical-hop="" data-critical-hops="" data-critical="false" data-bends="0" data-route-stretch="1.0" data-bridges="" d="M 740,500 L 740,640" fill="none" stroke="#365f56" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowA)"/>
+  <path id="l3-review-stroke" data-graph-role="decoration" data-owner="l3" d="M 600,440 L 360,440" fill="none" stroke="#7a5c99" stroke-width="0.9" stroke-dasharray="2.5,2" opacity="0.30" stroke-dashoffset="-0.15"/>
+  <path id="l3" data-graph-role="edge" data-edge-id="l3" data-source="center" data-target="src" data-edge-kind="flow" data-topic-id="" data-flow="async" data-motion-role="" data-motion-stage="" data-motion-order="" data-protocol="uses:source" data-via="" data-critical-path-id="" data-critical-hop="" data-critical-hops="" data-critical="false" data-bends="0" data-route-stretch="1.0" data-bridges="" d="M 600,440 L 360,440" fill="none" stroke="#7a5c99" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowF)"/>
+  <path id="l4-review-stroke" data-graph-role="decoration" data-owner="l4" d="M 1120,440 L 880,440" fill="none" stroke="#7a5c99" stroke-width="0.9" stroke-dasharray="2.5,2" opacity="0.30" stroke-dashoffset="-0.3"/>
+  <path id="l4" data-graph-role="edge" data-edge-id="l4" data-source="uses" data-target="center" data-edge-kind="flow" data-topic-id="" data-flow="async" data-motion-role="" data-motion-stage="" data-motion-order="" data-protocol="uses:read" data-via="" data-critical-path-id="" data-critical-hop="" data-critical-hops="" data-critical="false" data-bends="0" data-route-stretch="1.0" data-bridges="" d="M 1120,440 L 880,440" fill="none" stroke="#7a5c99" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowF)"/>
+  <g id="node-center" data-graph-role="node" data-node-id="center" data-semantic-role="review_card" data-motion-role="" data-motion-stage="" data-motion-order="" data-parent="" data-deployment-id="" data-topic-id="" data-span-id="" data-station-order="" data-status="" data-start-ms="" data-duration-ms="" data-parent-span="" data-graph-bounds="600,380,880,500">
+  <rect x="600.0" y="380.0" width="280.0" height="120.0" rx="7" fill="#fffdf7" stroke="#9a5d17" stroke-width="1.8"/>
+  <path data-graph-role="decoration" d="M 605.505 383.464 H 871.505 Q 876.505 383.464 876.505 389.464 V 494.464" fill="none" stroke="#9a5d17" stroke-width="0.8" opacity="0.42"/>
+  <text data-text-role="type" data-full-text="KERNELWIKI NODE" data-text-max-width="252.0" x="614.0" y="398.0" class="node-type" font-size="10.0">KERNELWIKI NODE</text>
+  <text data-text-role="title" data-full-text="learned card @rev" data-text-max-width="252.0" x="614.0" y="421.0" class="node-title" font-size="15" text-anchor="start">learned card @rev</text>
+  <text data-text-role="description" data-line="1" data-full-text="one version of one piece of knowledge" x="614.0" y="440.0" class="node-sub" font-size="11.5" text-anchor="start">one version of one piece of knowledge</text>
+  <text data-text-role="technology" data-full-text="P1 core" data-text-max-width="256.0" x="868.0" y="491.0" text-anchor="end" font-size="9.5" font-weight="700" fill="#8a6f43">P1 core</text>
+  </g>
+  <g id="node-prev" data-graph-role="node" data-node-id="prev" data-semantic-role="review_card" data-motion-role="" data-motion-stage="" data-motion-order="" data-parent="" data-deployment-id="" data-topic-id="" data-span-id="" data-station-order="" data-status="" data-start-ms="" data-duration-ms="" data-parent-span="" data-graph-bounds="640,140,840,250">
+  <rect x="640.0" y="140.0" width="200.0" height="110.0" rx="7" fill="#fffdf7" stroke="#365f56" stroke-width="1.8"/>
+  <path data-graph-role="decoration" d="M 646.141 143.413 H 832.141 Q 837.141 143.413 837.141 149.413 V 244.413" fill="none" stroke="#365f56" stroke-width="0.8" opacity="0.42"/>
+  <text data-text-role="type" data-full-text="HOW IT EVOLVED (BEFORE)" data-text-max-width="172.0" x="654.0" y="158.0" class="node-type" font-size="10.0">HOW IT EVOLVED (BEFORE)</text>
+  <text data-text-role="title" data-full-text="previous revision" data-text-max-width="172.0" x="654.0" y="181.0" class="node-title" font-size="15" text-anchor="start">previous revision</text>
+  <text data-text-role="description" data-line="1" data-full-text="the version this one revised" x="654.0" y="200.0" class="node-sub" font-size="11.5" text-anchor="start">the version this one revised</text>
+  <text data-text-role="technology" data-full-text="knowledge tree (P2.1)" data-text-max-width="176.0" x="828.0" y="241.0" text-anchor="end" font-size="9.5" font-weight="700" fill="#8a6f43">knowledge tree (P2.1)</text>
+  </g>
+  <g id="node-next" data-graph-role="node" data-node-id="next" data-semantic-role="review_card" data-motion-role="" data-motion-stage="" data-motion-order="" data-parent="" data-deployment-id="" data-topic-id="" data-span-id="" data-station-order="" data-status="" data-start-ms="" data-duration-ms="" data-parent-span="" data-graph-bounds="640,640,840,750">
+  <rect x="640.0" y="640.0" width="200.0" height="110.0" rx="7" fill="#fffdf7" stroke="#365f56" stroke-width="1.8"/>
+  <path data-graph-role="decoration" d="M 648.104 642.909 H 834.104 Q 839.104 642.909 839.104 648.909 V 743.909" fill="none" stroke="#365f56" stroke-width="0.8" opacity="0.42"/>
+  <text data-text-role="type" data-full-text="HOW IT EVOLVED (AFTER)" data-text-max-width="172.0" x="654.0" y="658.0" class="node-type" font-size="10.0">HOW IT EVOLVED (AFTER)</text>
+  <text data-text-role="title" data-full-text="next revision or retire" data-text-max-width="172.0" x="654.0" y="681.0" class="node-title" font-size="13.38" text-anchor="start">next revision or retire</text>
+  <text data-text-role="description" data-line="1" data-full-text="later revise, merge or retire" x="654.0" y="700.0" class="node-sub" font-size="11.5" text-anchor="start">later revise, merge or retire</text>
+  <text data-text-role="technology" data-full-text="knowledge tree (P2.1)" data-text-max-width="176.0" x="828.0" y="741.0" text-anchor="end" font-size="9.5" font-weight="700" fill="#8a6f43">knowledge tree (P2.1)</text>
+  </g>
+  <g id="node-src" data-graph-role="node" data-node-id="src" data-semantic-role="review_card" data-motion-role="" data-motion-stage="" data-motion-order="" data-parent="" data-deployment-id="" data-topic-id="" data-span-id="" data-station-order="" data-status="" data-start-ms="" data-duration-ms="" data-parent-span="" data-graph-bounds="120,385,360,495">
+  <rect x="120.0" y="385.0" width="240.0" height="110.0" rx="7" fill="#fffdf7" stroke="#7a5c99" stroke-width="1.8"/>
+  <path data-graph-role="decoration" d="M 127.085 386.846 H 353.085 Q 358.085 386.846 358.085 392.846 V 487.846" fill="none" stroke="#7a5c99" stroke-width="0.8" opacity="0.42"/>
+  <text data-text-role="type" data-full-text="WHERE IT CAME FROM" data-text-max-width="212.0" x="134.0" y="403.0" class="node-type" font-size="10.0">WHERE IT CAME FROM</text>
+  <text data-text-role="title" data-full-text="Source" data-text-max-width="212.0" x="134.0" y="426.0" class="node-title" font-size="15" text-anchor="start">Source</text>
+  <text data-text-role="description" data-line="1" data-full-text="run A node, or an AITER commit via ingest" x="134.0" y="441.0" class="node-sub" font-size="11.5" text-anchor="start">run A node, or an</text>
+  <text data-text-role="description" data-line="2" data-full-text="run A node, or an AITER commit via ingest" x="134.0" y="455.0" class="node-sub" font-size="11.5" text-anchor="start">AITER commit via ingest</text>
+  <text data-text-role="technology" data-full-text="uses:source" data-text-max-width="216.0" x="348.0" y="486.0" text-anchor="end" font-size="9.5" font-weight="700" fill="#8a6f43">uses:source</text>
+  </g>
+  <g id="node-uses" data-graph-role="node" data-node-id="uses" data-semantic-role="review_card" data-motion-role="" data-motion-stage="" data-motion-order="" data-parent="" data-deployment-id="" data-topic-id="" data-span-id="" data-station-order="" data-status="" data-start-ms="" data-duration-ms="" data-parent-span="" data-graph-bounds="1120,385,1400,495">
+  <rect x="1120.0" y="385.0" width="280.0" height="110.0" rx="7" fill="#fffdf7" stroke="#356a8a" stroke-width="1.8"/>
+  <path data-graph-role="decoration" d="M 1127.61 388.373 H 1393.61 Q 1398.61 388.373 1398.61 394.373 V 489.373" fill="none" stroke="#356a8a" stroke-width="0.8" opacity="0.42"/>
+  <text data-text-role="type" data-full-text="WHO USED IT, WITH WHAT RESULT" data-text-max-width="252.0" x="1134.0" y="403.0" class="node-type" font-size="10.0">WHO USED IT, WITH WHAT RESULT</text>
+  <text data-text-role="title" data-full-text="GEAK uses" data-text-max-width="252.0" x="1134.0" y="426.0" class="node-title" font-size="15" text-anchor="start">GEAK uses</text>
+  <text data-text-role="description" data-line="1" data-full-text="run X node B: read, committed; run Y node C: read, incorrect" x="1134.0" y="441.0" class="node-sub" font-size="11.5" text-anchor="start">run X node B: read, committed;</text>
+  <text data-text-role="description" data-line="2" data-full-text="run X node B: read, committed; run Y node C: read, incorrect" x="1134.0" y="455.0" class="node-sub" font-size="11.5" text-anchor="start">run Y node C: read, incorrect</text>
+  <text data-text-role="technology" data-full-text="measure + decide (P2.2)" data-text-max-width="256.0" x="1388.0" y="486.0" text-anchor="end" font-size="9.5" font-weight="700" fill="#8a6f43">measure + decide (P2.2)</text>
+  </g>
+  <g id="l1-label" data-graph-role="label" data-owner="l1" data-graph-bounds="682.61,295,735.63,327">
+  <rect x="682.61" y="295.0" width="53.03" height="32" rx="7" fill="#f7f2e8" opacity="0.94"/>
+  <text x="709.12" y="310.0" text-anchor="middle" class="arrow-label" font-size="11.5">revise</text>
+  <text x="709.12" y="322.0" text-anchor="middle" font-size="8.5" font-weight="800" fill="#8a6f43">[parent]</text>
+  </g>
+  <g id="l2-label" data-graph-role="label" data-owner="l2" data-graph-bounds="624.24,550,735.92,582">
+  <rect x="624.24" y="550.0" width="111.68" height="32" rx="7" fill="#f7f2e8" opacity="0.94"/>
+  <text x="680.08" y="565.0" text-anchor="middle" class="arrow-label" font-size="11.5">revise or retire</text>
+  <text x="680.08" y="577.0" text-anchor="middle" font-size="8.5" font-weight="800" fill="#8a6f43">[child]</text>
+  </g>
+  <g id="l3-label" data-graph-role="label" data-owner="l3" data-graph-bounds="445.99,403,514.01,435">
+  <rect x="445.99" y="403.0" width="68.02" height="32" rx="7" fill="#f7f2e8" opacity="0.94"/>
+  <text x="480.0" y="418.0" text-anchor="middle" class="arrow-label" font-size="11.5">based on</text>
+  <text x="480.0" y="430.0" text-anchor="middle" font-size="8.5" font-weight="800" fill="#8a6f43">[uses:source]</text>
+  </g>
+  <g id="l4-label" data-graph-role="label" data-owner="l4" data-graph-bounds="970.92,403,1029.08,435">
+  <rect x="970.92" y="403.0" width="58.16" height="32" rx="7" fill="#f7f2e8" opacity="0.94"/>
+  <text x="1000.0" y="418.0" text-anchor="middle" class="arrow-label" font-size="11.5">read it</text>
+  <text x="1000.0" y="430.0" text-anchor="middle" font-size="8.5" font-weight="800" fill="#8a6f43">[uses:read]</text>
+  </g>
+  <g id="legend" data-graph-role="legend">
+    <rect id="legend-zone" data-graph-role="reserved" data-reserved-kind="legend" x="50" y="846" width="569.76" height="46" rx="10" fill="none" stroke="none"/>
+    <line data-graph-role="decoration" x1="60.0" y1="860.0" x2="90.0" y2="860.0" stroke="#365f56" stroke-width="2.0" marker-end="url(#arrowA)"/>
+    <text data-graph-role="decoration" x="100.0" y="864.0" class="legend">evolution of the knowledge (P2.1)</text>
+    <line data-graph-role="decoration" x1="334.63999999999993" y1="860.0" x2="364.63999999999993" y2="860.0" stroke="#7a5c99" stroke-width="2.0" marker-end="url(#arrowF)"/>
+    <text data-graph-role="decoration" x="374.63999999999993" y="864.0" class="legend">uses into and out of KernelWiki (P1)</text>
+  </g>
+  <g id="footer" data-graph-role="reserved" data-graph-bounds="60,908,683,924">
+  <text x="60.0" y="920.0" class="footnote">P2.3: the same view works on reverse-engineered history; a missing side shows up as a gap</text>
+  </g>
+</svg>

@@ -1,0 +1,140 @@
+{
+ "schema_version": 1,
+ "mode": "architecture",
+ "template_type": "architecture",
+ "style": 9,
+ "semantic_profile": "generic",
+ "review_state": "DESIGN v3",
+ "rough_seed": 20261029,
+ "quality_profile": "showcase",
+ "text_policy": "strict",
+ "c4_level": "ledger",
+ "width": 1480,
+ "height": 960,
+ "title": "Knowledge Ledger: one KernelWiki node is the entry point (P1)",
+ "subtitle": "every query starts from a KernelWiki node; GEAK runs and AITER commits are its evidence. The ledger is a fold, not stored",
+ "nodes": [
+  {
+   "id": "center",
+   "kind": "review_card",
+   "type_label": "KernelWiki node",
+   "x": 600,
+   "y": 380,
+   "width": 280,
+   "height": 120,
+   "label": "learned card @rev",
+   "description": "one version of one piece of knowledge",
+   "technology": "P1 core",
+   "stroke": "#9a5d17"
+  },
+  {
+   "id": "prev",
+   "kind": "review_card",
+   "type_label": "how it evolved (before)",
+   "x": 640,
+   "y": 140,
+   "width": 200,
+   "height": 110,
+   "label": "previous revision",
+   "description": "the version this one revised",
+   "technology": "knowledge tree (P2.1)"
+  },
+  {
+   "id": "next",
+   "kind": "review_card",
+   "type_label": "how it evolved (after)",
+   "x": 640,
+   "y": 640,
+   "width": 200,
+   "height": 110,
+   "label": "next revision or retire",
+   "description": "later revise, merge or retire",
+   "technology": "knowledge tree (P2.1)"
+  },
+  {
+   "id": "src",
+   "kind": "review_card",
+   "type_label": "where it came from",
+   "x": 120,
+   "y": 385,
+   "width": 240,
+   "height": 110,
+   "label": "Source",
+   "description": "run A node, or an AITER commit via ingest",
+   "technology": "uses:source",
+   "stroke": "#7a5c99"
+  },
+  {
+   "id": "uses",
+   "kind": "review_card",
+   "type_label": "who used it, with what result",
+   "x": 1120,
+   "y": 385,
+   "width": 280,
+   "height": 110,
+   "label": "GEAK uses",
+   "description": "run X node B: read, committed; run Y node C: read, incorrect",
+   "technology": "measure + decide (P2.2)",
+   "stroke": "#356a8a"
+  }
+ ],
+ "arrows": [
+  {
+   "id": "l1",
+   "source": "prev",
+   "target": "center",
+   "source_port": "bottom",
+   "target_port": "top",
+   "flow": "control",
+   "label": "revise",
+   "protocol": "parent"
+  },
+  {
+   "id": "l2",
+   "source": "center",
+   "target": "next",
+   "source_port": "bottom",
+   "target_port": "top",
+   "flow": "control",
+   "label": "revise or retire",
+   "protocol": "child"
+  },
+  {
+   "id": "l3",
+   "source": "center",
+   "target": "src",
+   "source_port": "left",
+   "target_port": "right",
+   "flow": "async",
+   "label": "based on",
+   "protocol": "uses:source"
+  },
+  {
+   "id": "l4",
+   "source": "uses",
+   "target": "center",
+   "source_port": "left",
+   "target_port": "right",
+   "flow": "async",
+   "label": "read it",
+   "protocol": "uses:read"
+  }
+ ],
+ "legend_orientation": "horizontal",
+ "legend_x": 60,
+ "legend_y": 860,
+ "legend_locked": true,
+ "legend": [
+  {
+   "flow": "control",
+   "label": "evolution of the knowledge (P2.1)"
+  },
+  {
+   "flow": "async",
+   "label": "uses into and out of KernelWiki (P1)"
+  }
+ ],
+ "footer": "P2.3: the same view works on reverse-engineered history; a missing side shows up as a gap",
+ "footer_x": 60,
+ "footer_y": 920
+}

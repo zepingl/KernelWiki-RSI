@@ -1,0 +1,186 @@
+{
+ "schema_version": 1,
+ "mode": "architecture",
+ "template_type": "architecture",
+ "style": 9,
+ "semantic_profile": "generic",
+ "review_state": "DESIGN v3",
+ "rough_seed": 20261029,
+ "quality_profile": "showcase",
+ "text_policy": "strict",
+ "c4_level": "node",
+ "width": 1360,
+ "height": 980,
+ "title": "Node Structure: meaning and principles",
+ "subtitle": "P1 trace actual KernelWiki use \u00b7 P2.1 KernelWiki self-iteration \u00b7 P2.2 GEAK compatibility \u00b7 P2.3 reverse engineering",
+ "containers": [
+  {
+   "id": "tree",
+   "x": 40,
+   "y": 170,
+   "width": 740,
+   "height": 640,
+   "label": "One tree = the history of one thing",
+   "subtitle": "code tree: one GEAK run \u00b7 knowledge tree: one KernelWiki artifact kind \u00b7 external: AITER"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "decide",
+   "kind": "review_card",
+   "type_label": "a choice",
+   "x": 440,
+   "y": 250,
+   "width": 300,
+   "height": 120,
+   "label": "Decide",
+   "description": "GEAK: winner committed; KernelWiki: card status change or retire",
+   "technology": "P2.1 \u00b7 P2.2",
+   "stroke": "#a44a3f",
+   "parent": "tree"
+  },
+  {
+   "id": "node",
+   "kind": "review_card",
+   "type_label": "a version",
+   "x": 420,
+   "y": 440,
+   "width": 340,
+   "height": 120,
+   "label": "Node",
+   "description": "GEAK: a candidate kernel source snapshot; KernelWiki: one card at one commit",
+   "technology": "P1 \u00b7 P2.1 \u00b7 P2.2",
+   "parent": "tree"
+  },
+  {
+   "id": "measure",
+   "kind": "review_card",
+   "type_label": "a check",
+   "x": 440,
+   "y": 640,
+   "width": 300,
+   "height": 120,
+   "label": "Measure",
+   "description": "GEAK: verifier benchmark on GPU; KernelWiki: test_corpus, render --check",
+   "technology": "P2.3 evidence grade",
+   "stroke": "#356a8a",
+   "parent": "tree"
+  },
+  {
+   "id": "expansion",
+   "kind": "review_card",
+   "type_label": "an action",
+   "x": 60,
+   "y": 440,
+   "width": 220,
+   "height": 120,
+   "label": "Expansion",
+   "description": "GEAK: one engineer call; KernelWiki: one commit or PR",
+   "technology": "P2.1 \u00b7 P2.2",
+   "parent": "tree"
+  },
+  {
+   "id": "kw",
+   "kind": "review_card",
+   "type_label": "KernelWiki node \u00b7 gateway",
+   "x": 940,
+   "y": 440,
+   "width": 340,
+   "height": 120,
+   "label": "KernelWiki knowledge @rev",
+   "description": "every knowledge use in GEAK must resolve here; otherwise gap: unregistered_knowledge",
+   "technology": "P1 core",
+   "stroke": "#9a5d17"
+  },
+  {
+   "id": "src",
+   "kind": "review_card",
+   "type_label": "run or external node",
+   "x": 990,
+   "y": 690,
+   "width": 240,
+   "height": 110,
+   "label": "Source",
+   "description": "the GEAK run or AITER commit this knowledge is based on",
+   "technology": "uses:source",
+   "stroke": "#7a5c99"
+  }
+ ],
+ "arrows": [
+  {
+   "id": "produces",
+   "source": "expansion",
+   "target": "node",
+   "source_port": "right",
+   "target_port": "left",
+   "flow": "control",
+   "label": "produces",
+   "protocol": "K versions"
+  },
+  {
+   "id": "measures",
+   "source": "measure",
+   "target": "node",
+   "source_port": "top",
+   "target_port": "bottom",
+   "flow": "read",
+   "label": "measures",
+   "protocol": "contract"
+  },
+  {
+   "id": "judges",
+   "source": "decide",
+   "target": "node",
+   "source_port": "bottom",
+   "target_port": "top",
+   "flow": "write",
+   "label": "judges",
+   "protocol": "verdict"
+  },
+  {
+   "id": "uses",
+   "source": "node",
+   "target": "kw",
+   "source_port": "right",
+   "target_port": "left",
+   "flow": "async",
+   "label": "uses",
+   "protocol": "read / cited / adopted"
+  },
+  {
+   "id": "based",
+   "source": "kw",
+   "target": "src",
+   "source_port": "bottom",
+   "target_port": "top",
+   "flow": "async",
+   "label": "based on",
+   "protocol": "uses:source"
+  }
+ ],
+ "legend_orientation": "horizontal",
+ "legend_x": 40,
+ "legend_y": 870,
+ "legend_locked": true,
+ "legend": [
+  {
+   "flow": "control",
+   "label": "derivation"
+  },
+  {
+   "flow": "read",
+   "label": "measure"
+  },
+  {
+   "flow": "write",
+   "label": "verdict"
+  },
+  {
+   "flow": "async",
+   "label": "uses: always through KernelWiki (P1)"
+  }
+ ],
+ "footer": "P1: KernelWiki is the only gateway between knowledge and GEAK runs. P2.3: missing facts become gaps; grade E/A/T is computed",
+ "footer_x": 40,
+ "footer_y": 925
+}

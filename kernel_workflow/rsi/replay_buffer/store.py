@@ -9,6 +9,7 @@ from kernelwiki.knowledge import EvidenceRef, KnowledgeError, canonical
 from ..discovery import Attempt, DiscoveryWorld
 from ..evidence import evidence_refs, read_json, read_jsonl, verify, verify_artifacts
 from ..reverse_engineering.model import ReverseReport, subject_for
+from ..trace.tree import TreeView, fold
 from .cohorts import cohorts, split_worlds
 from .objective import ReplayObjective
 
@@ -21,6 +22,8 @@ class BufferSnapshot:
     attempts: tuple[Attempt, ...]
     _traces: tuple[bytes, ...]
     _excluded: tuple[bytes, ...]
+    _trace: tuple[bytes, ...] = ()
+    trees: tuple[TreeView, ...] = ()
 
     @property
     def manifest(self):
@@ -38,16 +41,21 @@ class BufferSnapshot:
     def excluded(self):
         return tuple(json.loads(value) for value in self._excluded)
 
-    def select(self, split=None, *, cohort="primary"):
+    @property
+    def trace(self):
+        return tuple(json.loads(value) for value in self._trace)
+
+    def select(self, split=None, *, cohort="primary", structure="world"):
         manifest = self.manifest
-        if cohort not in {"primary", "diagnostic"}:
-            raise KnowledgeError("buffer selection requires a primary or diagnostic cohort")
-        worlds = self.worlds if split is None else split_worlds(self.worlds, manifest["splits"])[split]
+        if cohort not in {"primary", "diagnostic"} or structure not in {"world", "tree"}:
+            raise KnowledgeError("buffer selection requires a primary or diagnostic cohort of worlds or trees")
+        items, key = (self.worlds, "cohorts") if structure == "world" else (self.trees, "tree_cohorts")
+        worlds = items if split is None else split_worlds(items, manifest["splits"])[split]
         if cohort == "diagnostic":
             return worlds
-        if "cohorts" not in manifest:
+        if key not in manifest:
             raise KnowledgeError("primary and diagnostic cohorts must be frozen before candidate evaluation")
-        selected = set(manifest["cohorts"]["primary"])
+        selected = set(manifest[key]["primary"])
         return tuple(world for world in worlds if world.id in selected)
 
     def attempt(self, attempt_id):
@@ -123,7 +131,17 @@ def open_buffer(directory):
                     if item not in checked:
                         verify(item)
                         checked.add(item)
+    records, trees = [], ()
+    if (directory / "trace.jsonl").exists():
+        if "trace.jsonl" not in manifest["artifacts"]:
+            raise KnowledgeError("discovery trace must be frozen by the pool manifest")
+        # The manifest freezes trace.jsonl's hash; its refs were hashed when ingest read them.
+        records = list(read_jsonl(directory / "trace.jsonl"))
+        trees = fold(records).code_trees()
+        if manifest.get("tree_cohorts") != cohorts(trees, manifest["budgets"], traces="trace.jsonl"):
+            raise KnowledgeError("frozen tree cohort differs from the source trace")
     return BufferSnapshot(directory.resolve(), canonical(manifest), worlds, tuple(attempts.values()),
                           tuple(canonical(trace) for trace in traces),
                           tuple(canonical(row) for row in read_jsonl(directory / "excluded.jsonl"))
-                          if (directory / "excluded.jsonl").exists() else ())
+                          if (directory / "excluded.jsonl").exists() else (),
+                          tuple(canonical(record) for record in records), trees)

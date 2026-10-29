@@ -19,7 +19,10 @@ from ..evidence import (
 from ..reverse_engineering.model import ReverseReport, subject_for
 from ..reverse_engineering.sources.archive import read_archive
 from ..reverse_engineering.sources.capture import load_online
+from ..reverse_engineering.sources.kernelwiki import kernelwiki_trees, knowledge_index, resolved_commit
 from ..reverse_engineering.trace import trace
+from ..trace.records import to_wire
+from ..trace.tree import fold, knowledge_coverage
 from .cohorts import cohorts, split_worlds
 from .store import open_buffer
 
@@ -69,12 +72,18 @@ def freeze(pool, online, output, *, investigations=()):
     write_jsonl(destination / "worlds.jsonl", [world.to_dict() for world in worlds])
     write_jsonl(destination / "reverse.jsonl", [traces[key] for key in sorted(traces)])
     write_jsonl(destination / "excluded.jsonl", excluded)
-    result = {**manifest, "schema_version": 2, "status": "frozen", "attempts": len(attempts), "worlds": len(worlds),
+    artifacts = ["attempts.jsonl", "worlds.jsonl", "reverse.jsonl", "excluded.jsonl"]
+    tree_fields = {}
+    if base.trace:
+        write_jsonl(destination / "trace.jsonl", base.trace)
+        artifacts.append("trace.jsonl")
+        tree_fields = {"trees": len(base.trees),
+                       "tree_cohorts": cohorts(base.trees, manifest["budgets"], traces="trace.jsonl")}
+    result = {**manifest, **tree_fields, "schema_version": 2, "status": "frozen", "attempts": len(attempts), "worlds": len(worlds),
               "cohorts": cohorts(worlds, manifest["budgets"]), "reverse_traces": len(traces),
               "replay_ready": sum(item.disposition == "replay_ready" for item in attempts),
               "qualified_nodes": sum(item.measurement.status == "qualified" for item in attempts),
-              "sources": sources, "artifacts": {name: reference(destination / name).sha256
-                                                for name in ("attempts.jsonl", "worlds.jsonl", "reverse.jsonl", "excluded.jsonl")},
+              "sources": sources, "artifacts": {name: reference(destination / name).sha256 for name in artifacts},
               "kernels": {kernel: sum(world.kernel == kernel for world in worlds)
                           for kernel in sorted({world.kernel for world in worlds})}}
     write_json(destination / "manifest.json", result)
@@ -89,14 +98,23 @@ def ingest(config_path, output, *, progress=None):
     tasks = config["tasks"]
     destination = Path(output)
     destination.mkdir(parents=True, exist_ok=False)
-    attempts, worlds, evidence, excluded = [], [], [], []
+    attempts, worlds, evidence, excluded, records = [], [], [], [], []
+    knowledge, wiki = None, None
+    if config.get("kernelwiki"):
+        # KernelWiki trees come first: a GEAK read can only resolve to an earlier knowledge node.
+        wiki = {"repo": str(config["kernelwiki"]),
+                "commit": resolved_commit(config["kernelwiki"], config.get("kernelwiki_rev", "HEAD"))}
+        records = kernelwiki_trees(wiki["repo"], wiki["commit"])
+        knowledge = knowledge_index(records)
     for campaign, campaign_data in campaigns.items():
         history = read_archive(campaign_data["path"], campaign=campaign, tasks=tasks,
-                               excluded_tasks=config.get("excluded_tasks", ()), states=config.get("states", {}))
+                               excluded_tasks=config.get("excluded_tasks", ()), states=config.get("states", {}),
+                               knowledge=knowledge)
         attempts.extend(history.attempts)
         worlds.extend(history.worlds)
         evidence.extend(asdict(item) for item in history.evidence)
         excluded.extend(history.excluded)
+        records.extend(history.trace)
         if progress:
             progress({"campaign": campaign, "attempts": len(history.attempts), "worlds": len(history.worlds)})
     ids = [attempt.id for attempt in attempts]
@@ -106,6 +124,9 @@ def ingest(config_path, output, *, progress=None):
     write_jsonl(destination / "worlds.jsonl", (world.to_dict() for world in worlds))
     write_json(destination / "evidence.json", evidence)
     write_jsonl(destination / "excluded.jsonl", excluded)
+    write_jsonl(destination / "trace.jsonl", (to_wire(record) for record in records))
+    forest = fold(records)
+    trees = forest.code_trees()
     sources = []
     for name, item in (("config.yaml", config_ref), ("campaigns.json", campaigns_ref)):
         target = destination / "inputs" / name
@@ -121,10 +142,13 @@ def ingest(config_path, output, *, progress=None):
                 "gaps": dict(Counter(gap for attempt in attempts for gap in attempt.gaps)),
                 "kernels": dict(Counter(world.kernel for world in worlds)),
                 "cohorts": cohorts(worlds, budgets), "splits": config["splits"], "budgets": budgets,
+                "trees": len(trees), "tree_cohorts": cohorts(trees, budgets, traces="trace.jsonl"),
+                "kernelwiki": wiki, "knowledge_coverage": knowledge_coverage(forest),
                 "objective": config.get("objective", {"beta_cost": 0.01, "beta_parallel": 0}),
                 "sources": sources,
                 "artifacts": {name: reference(destination / name).sha256
-                              for name in ("attempts.jsonl", "worlds.jsonl", "evidence.json", "excluded.jsonl", "inputs/config.yaml", "inputs/campaigns.json")},
+                              for name in ("attempts.jsonl", "worlds.jsonl", "evidence.json", "excluded.jsonl",
+                                           "trace.jsonl", "inputs/config.yaml", "inputs/campaigns.json")},
                 "world_scope": "observed source AND input context; explicit continuation chains only",
                 "limits": ["All original optimization invocations are inventoried, including interrupted calls.",
                            "Cross-round shared memory and merges remain audit relations or new roots.",

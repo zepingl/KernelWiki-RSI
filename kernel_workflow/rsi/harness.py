@@ -12,8 +12,6 @@ from kernelwiki.knowledge import (
     validate_policy,
 )
 
-from .discovery import DiscoveryNode
-
 INTERPRETER_VERSION = "knowledge-policy-v2"
 
 
@@ -87,9 +85,7 @@ class Rollout:
         for parent, node in zip(action.parents, outcomes):
             if node is not None:
                 source = self.nodes[parent]
-                if (not isinstance(node, DiscoveryNode) or node.parent_id != source.id
-                        or node.input_state != source.state.fingerprint
-                        or node.input_context != source.context.revision):
+                if not node.continues(source):
                     raise KnowledgeError("transition does not continue the selected source and context")
                 if node.measurement.status == "qualified" and node.measurement.contract != self.root.measurement.contract:
                     raise KnowledgeError("transition changed the root evaluation contract")

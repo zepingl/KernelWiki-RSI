@@ -33,7 +33,8 @@ def implementation_graph():
 def test_three_packages_own_their_mechanisms_and_retire_flat_modules():
     expected = {
         "loop": ("outer", "inner", "online", "evaluator", "qualification", "run"),
-        "reverse_engineering": ("model", "trace", "investigate", "analyst", "sources/archive", "sources/capture"),
+        "reverse_engineering": ("model", "trace", "investigate", "analyst", "sources/archive", "sources/archive_tree",
+                                "sources/capture", "sources/kernelwiki"),
         "replay_buffer": ("build", "store", "cohorts", "simulator", "objective", "evaluate"),
     }
     for package, modules in expected.items():
@@ -78,3 +79,11 @@ def test_agent_schemas_are_owned_by_inner_loop_and_method_analyst():
     assert ROLE.instructions.resolve() == ROOT / "reverse_engineering/roles/analyst.md"
     assert ROLE.schema["properties"]["method_status"]["enum"][-1] == "unknown"
     assert RuntimeAgent.__module__ == "kernel_workflow.rsi.runtime"
+
+
+def test_trace_is_a_domain_package_that_depends_only_on_shared_values():
+    allowed = ("kernel_workflow.rsi.trace", "kernel_workflow.rsi.discovery", "kernel_workflow.rsi.evidence")
+    for module, dependencies in implementation_graph().items():
+        if module.startswith("kernel_workflow.rsi.trace"):
+            local = {value for value in dependencies if value.startswith("kernel_workflow.rsi")}
+            assert all(value.startswith(allowed) for value in local), (module, local)

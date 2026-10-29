@@ -144,6 +144,10 @@ class DiscoveryNode:
         if self.measurement.status == "qualified" and self.measurement.source != self.state.fingerprint:
             raise KnowledgeError("measurement does not belong to the retained source state")
 
+    def continues(self, source):
+        return (isinstance(source, DiscoveryNode) and self.parent_id == source.id
+                and self.input_state == source.state.fingerprint and self.input_context == source.context.revision)
+
     @classmethod
     def from_dict(cls, value):
         strict_fields(value, cls.__dataclass_fields__, cls.__dataclass_fields__)

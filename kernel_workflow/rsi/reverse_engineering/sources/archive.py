@@ -30,6 +30,7 @@ from ...discovery import (
 )
 from ...evidence import read_json, read_jsonl, reference, verify
 from ..model import Coverage, TraceSubject
+from .archive_tree import lane_trees
 
 
 @dataclass(frozen=True)
@@ -206,6 +207,14 @@ class AuditReader:
         refs = [self.ref(directory / "summary.json"), self.ref(directory / "before.json")]
         unknown = Measurement("unknown", evidence=tuple(refs))
         self._measurements[path] = unknown
+        processes = summary.get("processes", [])
+        if processes and all(process.get("source_unchanged") is True and process.get("contract_unchanged") is True
+                             and (process.get("report_result") or {}).get("correctness_pass") is False
+                             for process in processes):
+            failed = Measurement("failed", summary.get("candidate_fingerprint"), evidence=tuple(refs),
+                                 reason="correctness failed in every process")
+            self._measurements[path] = failed
+            return failed
         if not all(summary.get(key) is True for key in
                    ("two_independent_processes", "measurement_valid", "full_task_coverage")):
             return unknown
@@ -261,6 +270,32 @@ class AuditReader:
         result = Measurement("qualified", source, 1 / median(latencies), contracts[0], tuple(refs))
         self._measurements[path] = result
         return result
+
+    def baseline(self, fingerprint, canonical, before):
+        """Latest qualified measurement of the canonical workspace taken before a dispatch."""
+        rows = sorted((row for row in self.benchmarks[fingerprint]
+                       if row.get("workspace") == canonical and row.get("time") and row["time"] < before),
+                      key=lambda row: row["time"], reverse=True)
+        return next((result for row in rows if (result := self.measurement(row)).status == "qualified"), None)
+
+    def candidate_measurement(self, fingerprint, contract):
+        """A result belongs to a source and contract, whoever ran it: the lower median of qualified runs,
+        or a correctness failure that no qualified run contradicts."""
+        results = []
+        for row in self.benchmarks[fingerprint]:
+            try:
+                results.append(self.measurement(row))
+            except OSError:  # a run whose receipts are gone supplies no evidence; it must not void the attempt
+                continue
+        qualified = sorted((item for item in results if item.status == "qualified" and item.contract == contract),
+                           key=lambda item: item.primary_score)
+        failed = [item for item in results if item.status == "failed"]
+        if qualified and not failed:
+            return qualified[(len(qualified) - 1) // 2]
+        if failed and not qualified:
+            return failed[0]
+        return Measurement("unknown", fingerprint, reason="conflicting correctness evidence" if failed
+                           else "no compatible independent candidate measurement")
 
     def initial_and_final(self, call, inputs):
         changes = sorted((row for row in self.changes[call["call_id"]]
@@ -336,21 +371,10 @@ class AuditReader:
             context = ContextSnapshot(digest({"input": input_context, "attempt": call["call_id"],
                                                "retained": retained, "audit": [asdict_ref.sha256 for asdict_ref in audit]}),
                                       (input_ref, *audit), input_context)
-            roots = sorted((row for row in self.benchmarks[parent]
-                            if row.get("workspace") == inputs["CANONICAL"] and row.get("time")
-                            and row["time"] < call["time"]),
-                           key=lambda row: row["time"], reverse=True)
-            root_measurement = next((result for row in roots
-                                     if (result := self.measurement(row)).status == "qualified"), None)
+            root_measurement = self.baseline(parent, inputs["CANONICAL"], call["time"])
             if root_measurement is None:
                 raise KnowledgeError("no qualified parent measurement available before dispatch")
-            verifier_ids = {item["call_id"] for item in self.verifiers[inputs["OUTPUT_DIR"]]}
-            candidates = sorted((row for row in self.benchmarks[retained]
-                                 if row.get("call_id") in verifier_ids), key=lambda row: row.get("time", ""))
-            for row in candidates:
-                measured = self.measurement(row)
-                if measured.status == "qualified" and measured.contract == root_measurement.contract:
-                    measurement = measured
+            measurement = self.candidate_measurement(retained, root_measurement.contract)
             argv = call["argv"]
             model = argv[argv.index("--model") + 1]
             effort = argv[argv.index("--effort") + 1]
@@ -610,17 +634,11 @@ class AuditReader:
         attempt = subject.attempt
         if not attempt.parent_source or not attempt.state:
             return None
-        call = self.calls[attempt.id]
-        parents = sorted((row for row in self.benchmarks[attempt.parent_source]
-                          if row.get("workspace") == inputs.get("CANONICAL") and row.get("time", "") < call.get("time", "")),
-                         key=lambda row: row.get("time", ""), reverse=True)
-        parent = next((value for row in parents if (value := self.measurement(row)).status == "qualified"), None)
-        verifier_ids = {row["call_id"] for row in self.verifiers[inputs.get("OUTPUT_DIR")]}
-        candidates = [self.measurement(row) for row in self.benchmarks[attempt.state.fingerprint]
-                      if row.get("call_id") in verifier_ids]
-        candidate = next((value for value in candidates if value.status == "qualified"
-                          and parent and value.contract == parent.contract), None)
-        return (parent, candidate) if candidate else None
+        parent = self.baseline(attempt.parent_source, inputs.get("CANONICAL"), self.calls[attempt.id].get("time", ""))
+        if parent is None:
+            return None
+        candidate = self.candidate_measurement(attempt.state.fingerprint, parent.contract)
+        return (parent, candidate) if candidate.status == "qualified" else None
 
 
 @dataclass(frozen=True)
@@ -629,9 +647,10 @@ class ArchiveHistory:
     worlds: tuple[DiscoveryWorld, ...]
     evidence: tuple[EvidenceRef, ...]
     excluded: tuple[dict, ...]
+    trace: tuple = ()
 
 
-def read_archive(run, *, campaign, tasks, excluded_tasks=(), states=None):
+def read_archive(run, *, campaign, tasks, excluded_tasks=(), states=None, knowledge=None):
     attempts, worlds, excluded = [], [], []
     reader = AuditReader(run)
     groups = defaultdict(list)
@@ -685,4 +704,6 @@ def read_archive(run, *, campaign, tasks, excluded_tasks=(), states=None):
                                           if value is not None}})
         worlds.append(reconstruct(world_id, kernel, campaign, state, dispatch.generation,
                                   root, [attempt for attempt, _ in rows]))
-    return ArchiveHistory(tuple(attempts), tuple(worlds), tuple(reader._references.values()), tuple(excluded))
+    trace = lane_trees(reader, attempts, campaign=campaign, tasks=tasks, states=states, knowledge=knowledge)
+    return ArchiveHistory(tuple(attempts), tuple(worlds), tuple(reader._references.values()), tuple(excluded),
+                          tuple(trace))

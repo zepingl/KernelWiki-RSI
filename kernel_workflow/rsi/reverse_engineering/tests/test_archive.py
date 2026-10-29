@@ -35,8 +35,8 @@ def source(run, content):
     return fingerprint
 
 
-def measurement(run, name, fingerprint, workspace, call_id, score, time):
-    directory = run / "benchmarks" / name
+def measurement(run, name, fingerprint, workspace, call_id, score, time, base="benchmarks"):
+    directory = run / base / name
     report = {"measurement_valid": True, "correctness_pass": True, "performance_scope_complete": True,
               "expected_case_count": 1, "runtime_fingerprint": "runtime-v1",
               "per_case": [{"name": "case", "calls": 2, "baseline_ms": 1,
@@ -60,6 +60,10 @@ def measurement(run, name, fingerprint, workspace, call_id, score, time):
 
 @pytest.fixture
 def audit(tmp_path):
+    return build_audit(tmp_path)
+
+
+def build_audit(tmp_path, calls_dir="calls"):
     run = tmp_path / "run"
     parent = source(run, "parent")
     candidate = source(run, "candidate")
@@ -68,7 +72,7 @@ def audit(tmp_path):
     calls, changes, engineers = [], [], []
     for index in range(2):
         call_id = f"call-{1-index}"
-        directory = run / "calls" / call_id
+        directory = run / calls_dir / call_id
         output = str(run / f"experiment/round_1/engineer_{index}")
         workspace = output + "/workspace"
         inputs = {"KERNEL_PATH": workspace, "CANONICAL": canonical, "OUTPUT_DIR": output,
@@ -81,7 +85,7 @@ def audit(tmp_path):
                 "delivered_prompt_sha256": hashlib.sha256(prompt.encode()).hexdigest()}
         save(directory / "invocation.json", call)
         calls.append({**call, "task": "task-train", "context": {**inputs, "phase": "Optimize"},
-                      "path": f"calls/{call_id}"})
+                      "path": f"{calls_dir}/{call_id}"})
         save(directory / "pre.json", {"source_states": [{"workspace": canonical, "fingerprint": parent}],
                                        "artifacts": []})
         save(directory / "post.json", {"source_states": [{"workspace": workspace, "fingerprint": parent}],
@@ -90,12 +94,12 @@ def audit(tmp_path):
                                          "artifacts": []})
         base = {"call_id": call_id, "workspace": workspace, "kind": "workspace_created", "event_line": 1,
                 "before_fingerprint": None, "after_fingerprint": parent,
-                "pre_observation": f"calls/{call_id}/pre.json", "post_observation": f"calls/{call_id}/post.json",
+                "pre_observation": f"{calls_dir}/{call_id}/pre.json", "post_observation": f"{calls_dir}/{call_id}/post.json",
                 "interval_start": "2026-01-01T01:01:00"}
         changes.extend([base, {**base, "kind": "source_modified", "event_line": 3,
                                 "before_fingerprint": parent, "after_fingerprint": candidate,
-                                "pre_observation": f"calls/{call_id}/post.json",
-                                "post_observation": f"calls/{call_id}/final.json",
+                                "pre_observation": f"{calls_dir}/{call_id}/post.json",
+                                "post_observation": f"{calls_dir}/{call_id}/final.json",
                                 "interval_start": "2026-01-01T01:02:00"}])
         if index == 0:
             calls.append({"call_id": "verify", "context": {"phase": "verify", "PATCH": output + "/best_patch.diff"}})
@@ -116,13 +120,17 @@ def audit(tmp_path):
 
 
 def test_raw_ingest_preserves_dispatch_order_and_unknown_cost(audit, tmp_path):
-    _, config, _ = audit
+    run, config, rows = audit
+    # call-1 retains the same source that call-0's verifier measured, so it shares that result.
     manifest = ingest(config, tmp_path / "pool")
     assert manifest["attempts"] == 2 and manifest["replay_ready"] == 2
-    assert manifest["worlds"] == 1 and manifest["qualified_nodes"] == 1
+    assert manifest["worlds"] == 1 and manifest["qualified_nodes"] == 2
     worlds = open_buffer(tmp_path / "pool").worlds
     assert [branch[0].attempt_id for branch in worlds[0].branches] == ["call-1", "call-0"]
-    assert worlds[0].branches[1][0].measurement.status == "unknown"
+    lines(run / "index/benchmarks.jsonl", rows[:1])
+    ingest(config, tmp_path / "unmeasured")
+    worlds = open_buffer(tmp_path / "unmeasured").worlds
+    assert {branch[0].measurement.status for branch in worlds[0].branches} == {"unknown"}
 
 
 def test_raw_measurement_rejects_wrong_source_and_contract_change(audit):
@@ -132,6 +140,48 @@ def test_raw_measurement_rejects_wrong_source_and_contract_change(audit):
     path = run / Path(row["summary_path"]).parent / "process_1/invocation.json"
     save(path, {"candidate": "wrong"})
     assert AuditReader(run).measurement(row).status == "unknown"
+
+
+def failed_measurement(run, name, fingerprint, call_id):
+    directory = run / "benchmarks" / name
+    process = {"pid": 1, "exit_code": 1, "source_unchanged": True, "contract_unchanged": True,
+               "report_result": {"correctness_pass": False, "measurement_valid": False}}
+    summary = {"candidate_fingerprint": fingerprint, "measurement_valid": False, "full_task_coverage": False,
+               "two_independent_processes": False, "processes": [process]}
+    save(directory / "summary.json", summary)
+    save(directory / "before.json", {"candidate": {"fingerprint": fingerprint}, "contracts": {"unittest.py": "frozen"}})
+    return {**summary, "call_id": call_id, "summary_path": str((directory / "summary.json").relative_to(run))}
+
+
+def test_measurement_belongs_to_the_source_and_uses_the_lower_median(audit):
+    run, _, rows = audit
+    parent, candidate = rows[0]["candidate_fingerprint"], rows[1]["candidate_fingerprint"]
+    contract = AuditReader(run).measurement(rows[0]).contract
+    extra = [measurement(run, f"engineer-{score}", candidate, "engineer", "call-1", score, "2026-01-01T01:03:00")
+             for score in (2.6, 2.0, 3.0)]
+    lines(run / "index/benchmarks.jsonl", rows + extra)
+    reader = AuditReader(run)
+    # Runs at 2.0, 2.2 (verifier), 2.6 and 3.0: the lower median is the verifier's run, not the best one.
+    assert reader.candidate_measurement(candidate, contract) == reader.measurement(rows[1])
+    # An unchanged source inherits the parent's own measurement; nothing is invented.
+    assert reader.candidate_measurement(parent, contract) == reader.measurement(rows[0])
+    assert reader.candidate_measurement(candidate, "other-contract").status == "unknown"
+    # A run whose receipts are missing is skipped instead of voiding the whole attempt.
+    (run / extra[0]["summary_path"]).unlink()
+    assert AuditReader(run).candidate_measurement(candidate, contract) == reader.measurement(rows[1])
+
+
+def test_correctness_failure_is_a_known_outcome_unless_contradicted(audit):
+    run, _, rows = audit
+    rejected = source(run, "incorrect")
+    contract = AuditReader(run).measurement(rows[0]).contract
+    lines(run / "index/benchmarks.jsonl", rows + [failed_measurement(run, "failed", rejected, "call-1")])
+    result = AuditReader(run).candidate_measurement(rejected, contract)
+    assert result.status == "failed" and result.source == rejected and result.primary_score is None
+    candidate = rows[1]["candidate_fingerprint"]
+    lines(run / "index/benchmarks.jsonl", rows + [failed_measurement(run, "flaky", candidate, "call-1")])
+    result = AuditReader(run).candidate_measurement(candidate, contract)
+    assert result.status == "unknown" and result.reason == "conflicting correctness evidence"
 
 
 def test_input_tampering_and_missing_parent_stay_trace_only(audit, tmp_path):

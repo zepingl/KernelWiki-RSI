@@ -14,7 +14,7 @@ from .loop.inner import ROLES, evolve
 from .replay_buffer.build import ingest
 from .replay_buffer.evaluate import evaluate
 from .replay_buffer.store import open_buffer
-from .report import diagnostics, render_report
+from .report import diagnostics, render_report, render_trace_report
 from .reverse_engineering.analyst import ROLE as ANALYST_ROLE
 from .reverse_engineering.investigate import investigate
 from .reverse_engineering.model import subject_for
@@ -67,6 +67,8 @@ def main(argv=None):
     replayer.add_argument("--neutral", action="store_true")
     replayer.add_argument("--policy", help="experimental working-policy JSON, without changing active knowledge")
     replayer.add_argument("--cohort", choices=["primary", "diagnostic"], default="primary")
+    replayer.add_argument("--structure", choices=["world", "tree"], default="world",
+                          help="v1 worlds or schema-4 code trees from trace.jsonl")
     replayer.add_argument("--output", required=True)
     evolver = commands.add_parser("evolve", help="bounded inner train/validation evolution; never publishes or evaluates test")
     evolver.add_argument("--pool", required=True)
@@ -78,6 +80,13 @@ def main(argv=None):
     evolver.add_argument("--node")
     evolver.add_argument("--claude")
     evolver.add_argument("--agent-timeout", type=int, default=300)
+    projector = commands.add_parser("project-kernelwiki", help="read-only: KernelWiki git history as knowledge trees")
+    projector.add_argument("--repo", required=True)
+    projector.add_argument("--rev", default="HEAD")
+    projector.add_argument("--output", required=True)
+    tracer_report = commands.add_parser("trace-report", help="render discovery-trace grades, coverage, ledger and gaps")
+    tracer_report.add_argument("--pool", required=True)
+    tracer_report.add_argument("--output", required=True)
     reporter = commands.add_parser("report", help="render derived coverage and qualification report")
     reporter.add_argument("--pool", required=True)
     reporter.add_argument("--experiment")
@@ -151,15 +160,17 @@ def main(argv=None):
         elif args.command == "replay":
             buffer = open_buffer(args.pool)
             snapshot = KnowledgeClient(args.wiki).snapshot(args.revision)
-            selected = buffer.select(args.split, cohort=args.cohort)
+            selected = buffer.select(args.split, cohort=args.cohort, structure=args.structure)
             if not selected:
-                raise KnowledgeError(f"no {args.cohort} worlds in {args.split}; diagnostic traces are not primary qualification")
+                raise KnowledgeError(f"no {args.cohort} {args.structure}s in {args.split}; "
+                                     "diagnostic traces are not primary qualification")
             policy = working_policy() or Policy(snapshot.policy, snapshot.records)
             result = evaluate(selected, Policy(policy.knowledge, policy.records, neutral=args.neutral),
                               buffer.budgets, buffer.objective)
             result["diagnostics"] = diagnostics(result["traces"])
             result["knowledge_revision"] = snapshot.revision
             result["cohort"] = args.cohort
+            result["structure"] = args.structure
             write_json(args.output, result)
             result = {"summary": result["summary"], "diagnostics": result["diagnostics"]}
         elif args.command == "evolve":
@@ -167,11 +178,23 @@ def main(argv=None):
                             agent=agent, policy=working_policy(), max_candidates=args.max_candidates,
                             publish=args.publish, progress=progress)
             result = {key: value for key, value in result.items() if key not in {"opportunities", "artifacts"}}
-        elif args.command == "report":
+        elif args.command == "project-kernelwiki":
+            from .evidence import write_jsonl
+            from .report import knowledge_metrics
+            from .reverse_engineering.sources.kernelwiki import kernelwiki_trees, resolved_commit
+            from .trace.records import to_wire
+            from .trace.tree import fold
+            commit = resolved_commit(args.repo, args.rev)
+            records = kernelwiki_trees(args.repo, commit)
+            write_jsonl(args.output, (to_wire(record) for record in records))
+            result = {"commit": commit, "records": len(records), "output": args.output,
+                      **knowledge_metrics(fold(records))}
+        elif args.command in {"report", "trace-report"}:
             path = Path(args.output)
             path.parent.mkdir(parents=True, exist_ok=True)
             with path.open("x") as stream:
-                stream.write(render_report(args.pool, args.experiment))
+                stream.write(render_report(args.pool, args.experiment) if args.command == "report"
+                             else render_trace_report(args.pool))
             result = {"report": str(path)}
         elif args.command == "explore":
             from .loop.online import explore

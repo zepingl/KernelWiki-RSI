@@ -1,0 +1,306 @@
+{
+ "schema_version": 1,
+ "mode": "architecture",
+ "template_type": "architecture",
+ "style": 9,
+ "semantic_profile": "generic",
+ "review_state": "DESIGN v3",
+ "rough_seed": 20261029,
+ "quality_profile": "showcase",
+ "text_policy": "strict",
+ "c4_level": "tree",
+ "width": 1800,
+ "height": 1220,
+ "title": "Discovery Tree: the life of one knowledge card",
+ "subtitle": "KernelWiki is the gateway: AITER -> KernelWiki -> GEAK run -> KernelWiki; every hop between trees is a uses edge (P1)",
+ "containers": [
+  {
+   "id": "ext",
+   "x": 40,
+   "y": 120,
+   "width": 260,
+   "height": 230,
+   "label": "External",
+   "subtitle": "ROCm/aiter repository"
+  },
+  {
+   "id": "kw",
+   "x": 460,
+   "y": 120,
+   "width": 1280,
+   "height": 440,
+   "label": "Knowledge tree (P2.1)",
+   "subtitle": "KernelWiki: one git commit per expansion"
+  },
+  {
+   "id": "opt",
+   "x": 700,
+   "y": 650,
+   "width": 790,
+   "height": 240,
+   "label": "Optimization tree (P2.2)",
+   "subtitle": "one GEAK kernel_lane run"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "aiter",
+   "kind": "review_card",
+   "type_label": "external node",
+   "x": 70,
+   "y": 210,
+   "width": 200,
+   "height": 110,
+   "label": "aiter@c2",
+   "description": "merge commit of an AITER PR",
+   "technology": "ROCm/aiter",
+   "parent": "ext"
+  },
+  {
+   "id": "ingest",
+   "kind": "review_card",
+   "type_label": "expansion",
+   "x": 500,
+   "y": 210,
+   "width": 200,
+   "height": 110,
+   "label": "ingest",
+   "description": "a KernelWiki commit re-extracts evidence",
+   "technology": "op = ingest",
+   "parent": "kw"
+  },
+  {
+   "id": "ev2",
+   "kind": "review_card",
+   "type_label": "knowledge node",
+   "x": 750,
+   "y": 210,
+   "width": 200,
+   "height": 110,
+   "label": "evidence@c2",
+   "description": "gemm evidence set read at aiter c2",
+   "technology": "gate: re-extract",
+   "stroke": "#a44a3f",
+   "parent": "kw"
+  },
+  {
+   "id": "revise",
+   "kind": "review_card",
+   "type_label": "expansion",
+   "x": 750,
+   "y": 410,
+   "width": 200,
+   "height": 110,
+   "label": "revise",
+   "description": "card v1 updated to the new evidence",
+   "technology": "op = revise",
+   "parent": "kw"
+  },
+  {
+   "id": "card2",
+   "kind": "review_card",
+   "type_label": "knowledge node",
+   "x": 1000,
+   "y": 410,
+   "width": 200,
+   "height": 110,
+   "label": "card v2",
+   "description": "decision card, status candidate_only",
+   "technology": "gate: render --check",
+   "stroke": "#a44a3f",
+   "parent": "kw"
+  },
+  {
+   "id": "distill",
+   "kind": "review_card",
+   "type_label": "expansion",
+   "x": 1250,
+   "y": 410,
+   "width": 200,
+   "height": 110,
+   "label": "distill",
+   "description": "curate writes a lesson from run A",
+   "technology": "op = distill",
+   "parent": "kw"
+  },
+  {
+   "id": "learned",
+   "kind": "review_card",
+   "type_label": "knowledge node",
+   "x": 1500,
+   "y": 410,
+   "width": 200,
+   "height": 110,
+   "label": "learned card",
+   "description": "a transferable lesson, lifecycle active",
+   "technology": "learned_knowledge",
+   "parent": "kw"
+  },
+  {
+   "id": "root",
+   "kind": "review_card",
+   "type_label": "code node \u00b7 root",
+   "x": 750,
+   "y": 740,
+   "width": 200,
+   "height": 110,
+   "label": "R",
+   "description": "baseline kernel source",
+   "technology": "kernel_source",
+   "parent": "opt"
+  },
+  {
+   "id": "gen",
+   "kind": "review_card",
+   "type_label": "expansion",
+   "x": 1000,
+   "y": 740,
+   "width": 200,
+   "height": 110,
+   "label": "generate r1",
+   "description": "engineer edits code in one direction",
+   "technology": "op = generate",
+   "parent": "opt"
+  },
+  {
+   "id": "a",
+   "kind": "review_card",
+   "type_label": "code node",
+   "x": 1250,
+   "y": 740,
+   "width": 200,
+   "height": 110,
+   "label": "A",
+   "description": "verifier measured it; committed",
+   "technology": "gate: verifier",
+   "stroke": "#a44a3f",
+   "parent": "opt"
+  },
+  {
+   "id": "unreg",
+   "kind": "review_card",
+   "type_label": "not in KernelWiki",
+   "x": 970,
+   "y": 960,
+   "width": 260,
+   "height": 110,
+   "label": "Unregistered knowledge",
+   "description": "GEAK learned/, KB Store patch, research brief",
+   "technology": "gap (P1 coverage)",
+   "stroke": "#a44a3f"
+  }
+ ],
+ "arrows": [
+  {
+   "id": "u1",
+   "source": "aiter",
+   "target": "ingest",
+   "source_port": "right",
+   "target_port": "left",
+   "flow": "async",
+   "label": "based on",
+   "protocol": "uses:source"
+  },
+  {
+   "id": "d1",
+   "source": "ingest",
+   "target": "ev2",
+   "source_port": "right",
+   "target_port": "left",
+   "flow": "control"
+  },
+  {
+   "id": "u2",
+   "source": "ev2",
+   "target": "revise",
+   "source_port": "bottom",
+   "target_port": "top",
+   "flow": "async",
+   "label": "based on",
+   "protocol": "uses:source"
+  },
+  {
+   "id": "d3",
+   "source": "revise",
+   "target": "card2",
+   "source_port": "right",
+   "target_port": "left",
+   "flow": "control"
+  },
+  {
+   "id": "u3",
+   "source": "card2",
+   "target": "gen",
+   "source_port": "bottom",
+   "target_port": "top",
+   "flow": "async",
+   "label": "engineer read it",
+   "protocol": "uses:read \u00b7 P1"
+  },
+  {
+   "id": "d4",
+   "source": "root",
+   "target": "gen",
+   "source_port": "right",
+   "target_port": "left",
+   "flow": "control"
+  },
+  {
+   "id": "d5",
+   "source": "gen",
+   "target": "a",
+   "source_port": "right",
+   "target_port": "left",
+   "flow": "control"
+  },
+  {
+   "id": "u4",
+   "source": "a",
+   "target": "distill",
+   "source_port": "top",
+   "target_port": "bottom",
+   "flow": "write",
+   "label": "lesson from run",
+   "protocol": "uses:source \u00b7 gap today"
+  },
+  {
+   "id": "d6",
+   "source": "distill",
+   "target": "learned",
+   "source_port": "right",
+   "target_port": "left",
+   "flow": "control"
+  },
+  {
+   "id": "u5",
+   "source": "unreg",
+   "target": "gen",
+   "source_port": "top",
+   "target_port": "bottom",
+   "flow": "write",
+   "label": "read directly",
+   "protocol": "gap: unregistered"
+  }
+ ],
+ "legend_orientation": "horizontal",
+ "legend_x": 40,
+ "legend_y": 1120,
+ "legend_locked": true,
+ "legend": [
+  {
+   "flow": "control",
+   "label": "derivation inside a tree"
+  },
+  {
+   "flow": "async",
+   "label": "uses through KernelWiki (P1)"
+  },
+  {
+   "flow": "write",
+   "label": "gap: missing or unregistered (P2.3)"
+  }
+ ],
+ "footer": "red edges are gaps today: 0/169 learned cards record their run; knowledge read outside KernelWiki is counted as unregistered",
+ "footer_x": 40,
+ "footer_y": 1185
+}

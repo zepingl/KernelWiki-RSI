@@ -65,11 +65,12 @@ kernel_workflow/rsi/
 ├── loop/                    discovery, evolution, qualification
 ├── replay_buffer/           immutable buffers and finite replay
 ├── reverse_engineering/     evidence-bound provenance
+├── trace/                   append-only discovery trace · code, knowledge and external trees (schema 4)
 └── docs/                    visual atlas, roadmap, objective analysis
 ```
 
 <table>
-<tr><th><code>loop/</code></th><th><code>replay_buffer/</code></th><th><code>reverse_engineering/</code></th></tr>
+<tr><th><code>loop/</code></th><th><code>replay_buffer/</code></th><th><code>reverse_engineering/</code></th><th><code>trace/</code></th></tr>
 <tr valign="top">
 <td>
 
@@ -90,7 +91,7 @@ kernel_workflow/rsi/
 | `build` | `ingest` · `freeze` |
 | `store` | read-only snapshots |
 | `cohorts` | primary / diagnostic splits |
-| `simulator` | recorded transitions only |
+| `simulator` | recorded transitions · worlds and trees |
 | `objective` | replay objective |
 | `evaluate` | paired evaluation |
 
@@ -99,12 +100,23 @@ kernel_workflow/rsi/
 
 | Module | Role |
 | :-- | :-- |
-| `model` | Relation · Gap · ReverseReport |
+| `model` | Relation · ReverseReport |
 | `trace` | evidence → observations |
 | `investigate` | per-gap search, coverage |
 | `analyst` | bounded method review |
 | `sources/archive` | GEAK audit runs |
 | `sources/capture` | harness captures |
+| `sources/archive_tree` | audit runs → trace records |
+| `sources/kernelwiki` | KernelWiki git history → knowledge trees |
+
+</td>
+<td>
+
+| Module | Role |
+| :-- | :-- |
+| `records` | 7 wire records |
+| `tree` | fold · grades · ledger · worklist |
+| `gaps` | Gap · Coverage |
 
 </td>
 </tr>
@@ -112,12 +124,14 @@ kernel_workflow/rsi/
 
 ```mermaid
 flowchart LR
-    loop --> replay_buffer --> reverse_engineering --> harness --> discovery
+    loop --> replay_buffer --> reverse_engineering --> trace --> discovery
+    replay_buffer --> trace
+    loop & replay_buffer & reverse_engineering --> harness
     loop & reverse_engineering --> runtime --> evidence
 ```
 
 `tests/test_structure.py` enforces this direction: `reverse_engineering` and `runtime` never import `loop`
-or `replay_buffer`, and the import graph stays acyclic. Each package owns its own `tests/`, `roles/` and
+or `replay_buffer`, `trace` depends only on shared domain values, and the import graph stays acyclic. Each package owns its own `tests/`, `roles/` and
 `configs/`. The KernelWiki SDK is an external dependency and is not vendored.
 
 ## Design invariants
@@ -163,11 +177,13 @@ python3 -m kernel_workflow.rsi investigate --run "$AUDIT_RUN" \
 
 | Command | Purpose |
 | :-- | :-- |
-| `ingest` · `freeze` | Build a new immutable buffer from raw history, online captures or investigations |
+| `ingest` · `freeze` | Build a new immutable buffer from raw history, online captures or investigations; with `kernelwiki: <repo>` (optional `kernelwiki_rev`) in the config, GEAK reads resolve to KernelWiki nodes |
 | `trace` · `investigate` | Reverse-engineer one attempt. Takes exactly one of `--run`, `--online` or `--pool` |
-| `replay` | Evaluate a pinned policy without agent or GPU execution |
+| `replay` | Evaluate a pinned policy without agent or GPU execution; `--structure tree` replays schema-4 code trees |
 | `evolve` | Bounded inner train/validation evolution |
 | `report` | Render coverage and qualification reports |
+| `trace-report` | Discovery-trace grades, multi-direction coverage, KernelWiki coverage, knowledge ledger and gap worklist |
+| `project-kernelwiki` | Read-only: KernelWiki git history as knowledge trees, with grades and gaps per kind |
 | `explore` · `calibrate` | Online discovery with the fixed agent and evaluator |
 | `cycle` · `release` | Full outer round, then gated KernelWiki publication |
 
