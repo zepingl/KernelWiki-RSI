@@ -19,12 +19,17 @@ from kernelwiki.knowledge import EvidenceRef
 from ...trace.gaps import Gap
 from ...trace.records import Decide, Expansion, GapRecord, Node, Tree, Use
 
+RSI_GATE = "KernelWiki-RSI paired replay and fresh online holdout (qualify)"
 GATES = {"evidence_set": "corpus re-extraction and test_corpus", "decision_card": "_render_decisions --check",
+         "policy": RSI_GATE, "policy_rule": RSI_GATE,
          "bundle": "bundle validation on GPU"}
 FILE_KINDS = (("evidence_set", r"corpus/evidence/[^/]+\.yaml"), ("decision_file", r"corpus/decisions/[^/]+\.yaml"),
               ("learned_card", r".+/learned_knowledge/(?!README\.md$)[^/]+\.md"),
               ("backend_page", r"knowledge/operator/[^/]+/backend/[^/]+\.md"),
-              ("operator_page", r"knowledge/operator/[^/]+/[^/]+\.md"), ("general_page", r"knowledge/general/.+\.md"),
+              ("operator_page", r"knowledge/operator/[^/]+/[^/]+\.md"),
+              # The KnowledgePolicy and the rule cards KnowledgeClient.publish writes, before ordinary pages.
+              ("policy", r"knowledge/policy\.yaml"), ("policy_rule", r"knowledge/general/rsi/[^/]+\.md"),
+              ("general_page", r"knowledge/general/.+\.md"),
               ("bundle", r"kernels/.+/metadata\.yaml"))
 PIN = re.compile(r"github\.com/([\w.-]+/[\w.-]+)/(?:tree|blob|commit)/([0-9a-f]{12,40})")
 EVIDENCE_ID = re.compile(r"^\s*-?\s*\w+_id:\s*\"?((?:src|cfg|sel)_[0-9a-f]+)", re.M)
