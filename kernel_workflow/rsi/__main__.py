@@ -79,8 +79,6 @@ def main(argv=None):
     evolver.add_argument("--max-candidates", type=int, default=4)
     evolver.add_argument("--episodes", choices=["step", "truncate"],
                          help="policy schema 2 over recorded expansions of the pool's discovery trees")
-    evolver.add_argument("--diagnostic", action="store_true",
-                         help="run even when some split kernels lack primary support; never a qualification")
     evolver.add_argument("--node")
     evolver.add_argument("--claude")
     evolver.add_argument("--agent-timeout", type=int, default=300)
@@ -113,6 +111,23 @@ def main(argv=None):
     publisher = commands.add_parser("release", help="reproduce real final gates, then publish with KernelWiki compare-and-swap")
     publisher.add_argument("--cycle", required=True)
     publisher.add_argument("--wiki", required=True)
+    migration = commands.add_parser("migrate", help="replay-evidenced KernelWiki policy migration with human approval")
+    steps = migration.add_subparsers(dest="step", required=True)
+    asked = steps.add_parser("request", help="reproduce a pooled episode round and write an unsigned approval")
+    asked.add_argument("--evolve", required=True)
+    asked.add_argument("--wiki", required=True)
+    asked.add_argument("--output", required=True)
+    signed = steps.add_parser("sign", help="record a person's decision on exactly this request")
+    signed.add_argument("--request", required=True)
+    signed.add_argument("--by", required=True)
+    signed.add_argument("--reject", action="store_true")
+    published = steps.add_parser("publish", help="reproduce the gate, compare-and-swap, commit knowledge/, trace")
+    published.add_argument("--request", required=True)
+    published.add_argument("--wiki", required=True)
+    switched = steps.add_parser("switch", help="roll back to, or restore, a revision of one publication")
+    switched.add_argument("--request", required=True)
+    switched.add_argument("--wiki", required=True)
+    switched.add_argument("--to", choices=["previous", "published"], required=True)
     args = parser.parse_args(argv)
     progress = lambda value: print(json.dumps(value, ensure_ascii=False), file=sys.stderr, flush=True)
     runtime = None
@@ -180,8 +195,7 @@ def main(argv=None):
         elif args.command == "evolve":
             result = evolve(args.pool, args.wiki, args.output,
                             agent=agent, policy=working_policy(), max_candidates=args.max_candidates,
-                            publish=args.publish, progress=progress, episodes=args.episodes,
-                            require_all_kernels=not args.diagnostic)
+                            publish=args.publish, progress=progress, episodes=args.episodes)
             result = {key: value for key, value in result.items() if key not in {"opportunities", "artifacts"}}
         elif args.command == "project-kernelwiki":
             from .evidence import write_jsonl
@@ -211,6 +225,12 @@ def main(argv=None):
             from .loop.outer import cycle
             result = cycle(args.config, args.wiki, args.output, resume=args.resume, progress=progress)
             result = {key: value for key, value in result.items() if key != "artifacts"}
+        elif args.command == "migrate":
+            from .loop import migration
+            result = {"request": lambda: migration.request(args.evolve, args.wiki, args.output),
+                      "sign": lambda: migration.sign(args.request, args.by, "reject" if args.reject else "approve"),
+                      "publish": lambda: migration.publish(args.request, args.wiki),
+                      "switch": lambda: migration.switch(args.request, args.wiki, args.to)}[args.step]()
         else:
             from .loop.qualification import release
             result = release(args.cycle, args.wiki)

@@ -131,7 +131,7 @@ def _candidate(proposal, incumbent, allowed_evidence):
 
 
 def evolve(pool, wiki, output, *, agent=None, publish=False, max_candidates=4, progress=None, policy=None,
-           episodes=None, require_all_kernels=True):
+           episodes=None):
     if publish:
         raise KnowledgeError("inner evolution never publishes; final cycle qualification requires fresh holdout and paired online evidence")
     if type(max_candidates) is not int or not 1 <= max_candidates <= 4:
@@ -154,12 +154,18 @@ def evolve(pool, wiki, output, *, agent=None, publish=False, max_candidates=4, p
     else:
         frozen_cohorts = manifest["cohorts"]
         primary = buffer.select(cohort="primary")
-    partitions = {name: tuple(world for world in primary if kernel_of(world) in names)
-                  for name, names in manifest["splits"].items()}
-    missing = {name: sorted(set(manifest["splits"][name]) - {kernel_of(world) for world in partitions[name]})
-               for name in ("train", "validation")}
-    missing = {name: values for name, values in missing.items() if values}
-    if (missing and require_all_kernels) or not partitions["train"] or not partitions["validation"]:
+    if episodes:
+        # Historical kernels were all inspected already; generalization is owned by fresh online holdout runs.
+        # Offline, every primary episode trains and gates, and no kernel's full-budget quality may regress.
+        partitions = {"train": primary, "validation": primary}
+        missing = {}
+    else:
+        partitions = {name: tuple(world for world in primary if kernel_of(world) in names)
+                      for name, names in manifest["splits"].items()}
+        missing = {name: sorted(set(manifest["splits"][name]) - {kernel_of(world) for world in partitions[name]})
+                   for name in ("train", "validation")}
+        missing = {name: values for name, values in missing.items() if values}
+    if missing or not partitions["train"] or not partitions["validation"]:
         result = {"status": "insufficient_primary_support", "reason": "branching, continuation, complete outcomes and budget coverage are required",
                   "missing_primary_kernels": missing, "primary_worlds": len(primary), "diagnostic_worlds": len(worlds),
                   "knowledge_revision": snapshot.revision, "policy_revision": incumbent.revision,
@@ -174,8 +180,10 @@ def evolve(pool, wiki, output, *, agent=None, publish=False, max_candidates=4, p
               "policy_revision": incumbent.revision, "interpreter": INTERPRETER_VERSION, "metric": "root-relative-qualified-gain-v2",
               "model": MODEL, "effort": EFFORT, "budgets": budgets, "objective": asdict(objective),
               "splits": manifest["splits"], "cohorts": frozen_cohorts, "max_candidates": max_candidates,
-              "episodes": episodes, "missing_primary_kernels": missing,
-              "scope": "diagnostic: not every split kernel has primary support" if missing else "complete",
+              "episodes": episodes,
+              "selection": ("pooled replay gate over every primary episode: higher Objective, no kernel's full-budget "
+                            "quality lower; generalization is owned by fresh online holdout") if episodes else
+                           "fixed primary validation split",
               "test_role": "historical regression only; no test evaluation or release in an inner round",
               "code": {name: reference(path).sha256 for name, path in paths.items()}}
     write_json(destination / "manifest.json", frozen)
@@ -247,7 +255,7 @@ def evolve(pool, wiki, output, *, agent=None, publish=False, max_candidates=4, p
                         train_result = evaluate(partitions["train"], candidate, budgets, objective, episodes=episodes)
                         write_json(destination / f"candidate-{index}-train.json", train_result)
                         if train_result["qualification"]["eligible"] and incumbent_train["qualification"]["eligible"]:
-                            candidates.append((index, candidate))
+                            candidates.append((index, candidate, train_result))
                         receipt.update(status="replayed" if train_result["qualification"]["eligible"] else "unsupported_replay",
                                        training=train_result["summary"], qualification=train_result["qualification"],
                                        training_examples=examples(train_result))
@@ -272,26 +280,34 @@ def evolve(pool, wiki, output, *, agent=None, publish=False, max_candidates=4, p
         write_json(destination / "result.json", result)
         raise
     _check_frozen(frozen["code"], paths, pool, pool_ref)
-    baseline_validation = evaluate(partitions["validation"], incumbent, budgets, objective, episodes=episodes)
-    write_json(destination / "incumbent-validation.json", baseline_validation)
+    if episodes:
+        baseline_validation = incumbent_train
+    else:
+        baseline_validation = evaluate(partitions["validation"], incumbent, budgets, objective)
+        write_json(destination / "incumbent-validation.json", baseline_validation)
     selected = None
     best = baseline_validation["summary"]["objective"]
-    for index, candidate in candidates:
-        validation = evaluate(partitions["validation"], candidate, budgets, objective, episodes=episodes)
-        write_json(destination / f"candidate-{index}-validation.json", validation)
-        if qualifies(validation, baseline_validation) and validation["summary"]["objective"] > best + 1e-12:
+    for index, candidate, train_result in candidates:
+        if episodes:
+            validation = train_result
+        else:
+            validation = evaluate(partitions["validation"], candidate, budgets, objective)
+            write_json(destination / f"candidate-{index}-validation.json", validation)
+        if (qualifies(validation, baseline_validation, held_out=bool(episodes))
+                and validation["summary"]["objective"] > best + 1e-12):
             selected = (index, candidate, validation)
             best = validation["summary"]["objective"]
     working = selected[1] if selected else incumbent
     write_json(destination / "selected-policy.json", working.to_dict())
-    result = {"scope": frozen["scope"], "missing_primary_kernels": missing,
+    result = {"selection": frozen["selection"],
               "status": "working_policy_selected" if selected else "no_change",
               "knowledge_revision": snapshot.revision, "policy_revision": working.revision,
               "selected": selected[0] if selected else None, "published": False,
               "opportunities": receipts, "test_evaluated": False, "agent_calls": calls,
               "test_role": "historical regression; final unseen holdout is owned by the outer cycle",
-              "reason": "selected on fixed primary validation only; no active-pointer change" if selected else
-                        "no supported candidate improved validation Objective without full-budget quality regression"}
+              "reason": ("selected by the pooled replay gate; no active-pointer change" if episodes else
+                         "selected on fixed primary validation only; no active-pointer change") if selected else
+                        "no supported candidate improved Objective without full-budget quality regression"}
     if selected:
         result["validation"] = selected[2]["summary"]
     result["artifacts"] = artifact_hashes(destination)

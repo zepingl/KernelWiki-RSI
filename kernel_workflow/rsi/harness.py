@@ -199,6 +199,8 @@ class Policy:
     def select_expansion(self, observation):
         """Policy schema 2: stop, then skip, then select, then width, within the remaining budget.
         Without rules every planned direction is dispatched, which is what the recorded lane did."""
+        if self.knowledge.schema_version == 1 and self.knowledge.rule_ids:
+            raise KnowledgeError("schema-1 rules rank parents; the expansion interpreter needs policy schema 2")
         rules = [] if self.neutral else [record for record in self.records
                  if record.id in self.knowledge.rule_ids and record.matches(observation.state)]
         rules.sort(key=lambda record: (-(len(record.applies_to) + len(record.policy_rule.when)), record.id))
@@ -242,6 +244,8 @@ class Policy:
         if knowledge_snapshot is not None:
             return Policy(knowledge_snapshot.policy, knowledge_snapshot.records,
                           neutral=self.neutral).select(observation)
+        if self.knowledge.schema_version != 1:
+            raise KnowledgeError("policy schema 2 decides expansions; the parent scheduler runs schema 1 only")
         if not observation.parents or observation.remaining_budget < observation.direction_cost:
             return Action(reason="no_budget_or_support")
         rules = [] if self.neutral else [record for record in self.records

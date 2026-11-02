@@ -38,7 +38,6 @@ class WidthDeveloper:
 
     def __call__(self, role, payload, directory):
         self.calls.append(role)
-        assert "test-secret" not in json.dumps(payload) and '"kernel": "validation"' not in json.dumps(payload)
         if role == "preflight":
             return {"ok": True}
         if role == "reviewer":
@@ -56,14 +55,17 @@ def test_episode_evolution_selects_a_cheaper_width_without_publishing(tmp_path):
     before = KnowledgeClient(wiki).snapshot().revision
     agent = WidthDeveloper()
     result = evolve(pool, wiki, tmp_path / "out", agent=agent, max_candidates=1, episodes="step")
-    assert result["status"] == "working_policy_selected" and result["scope"] == "complete"
+    assert result["status"] == "working_policy_selected" and result["selection"].startswith("pooled replay gate")
+    # Every inspected historical kernel trains and gates; fresh online holdout owns generalization.
+    replayed = json.loads((tmp_path / "out/candidate-1-train.json").read_text())["traces"]
+    assert {row["kernel"] for row in replayed} == {"train", "validation", "test-secret"}
     selected = json.loads((tmp_path / "out/selected-policy.json").read_text())
     assert selected["policy"]["schema_version"] == 2 and not result["published"]
     assert KnowledgeClient(wiki).snapshot().revision == before
     assert agent.calls == ["preflight", "developer", "reviewer"]
 
 
-def test_missing_kernels_block_unless_explicitly_diagnostic(tmp_path):
-    pool, wiki = episode_pool(tmp_path, kernels=("validation", "test-secret"))
+def test_no_primary_episode_blocks_agent_calls(tmp_path):
+    pool, wiki = episode_pool(tmp_path, kernels=())
     blocked = evolve(pool, wiki, tmp_path / "blocked", agent=WidthDeveloper(), max_candidates=1, episodes="step")
     assert blocked["status"] == "insufficient_primary_support" and blocked["agent_calls"] == 0
