@@ -53,30 +53,33 @@ def loop(tmp_path):
 
 
 class LoopAgent:
-    """Round 1: a page-conditioned select rule plus field evidence for that page. Afterwards: nothing new."""
+    """Round 1: a page-conditioned select rule, and field evidence for that page. Afterwards: nothing new."""
 
     def __init__(self):
-        self.proposals = 0
+        self.proposals = self.curations = 0
 
     def __call__(self, role, payload, directory):
         if role == "preflight":
             return {"ok": True}
         if role == "reviewer":
             return {"decision": "approve", "reasons": ["fixture"]}
+        if role == "curator":
+            self.curations += 1
+            row = next(row for row in payload["knowledge_evidence"] if row["path"] == PAGE)
+            pages = [{"path": PAGE, "section": f"In {row['directions']} recorded first rounds the direction that "
+                                               "followed this page beat its siblings (association, 3 runs).",
+                      "citations": [row["citable"][0]["node"]]}] if self.curations == 1 else []
+            return {"rationale": "fixture", "pages": pages}
         self.proposals += 1
         if self.proposals > 1:
             return {"kind": "evidence_update", "rationale": "no new evidence", "policy": {}, "records": []}
-        row = next(row for row in payload["training"]["knowledge_evidence"] if row["path"] == PAGE)
         return {"kind": "policy_update", "rationale": "the tuning-guided direction was the round's best",
                 "policy": {"schema_version": 2, "rule_ids": ["select-tuning"], "top_k": 3, "workers": 2,
                            "max_width": 8},
                 "records": [{"id": "select-tuning", "title": "Dispatch the tuning-guided direction", "body": "fixture",
                              "applies_to": [], "evidence": payload["training"]["examples"][0]["evidence"],
                              "policy_rule": {"when": [{"field": "knowledge", "op": "contains", "value": PAGE}],
-                                             "effect": "select"}}],
-                "pages": [{"path": PAGE, "section": f"In {row['directions']} recorded first rounds the direction that "
-                                                    "followed this page beat its siblings (association, 3 runs).",
-                           "citations": [row["citable"][0]["node"]]}]}
+                                             "effect": "select"}}]}
 
 
 def test_iterate_publishes_gated_changes_until_a_round_adds_nothing(loop, tmp_path):

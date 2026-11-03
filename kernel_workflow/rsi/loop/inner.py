@@ -46,8 +46,10 @@ ROLES = {
     "developer": AgentRole({"type": "object", "required": ["kind", "rationale", "policy", "records"],
                             "properties": {"kind": {"enum": ["policy_update", "evidence_update", "needs_online"]},
                                            "rationale": {"type": "string"}, "policy": {"type": "object"},
-                                           "records": {"type": "array"}, "pages": {"type": "array"}}},
-                           Path(__file__).parent / "roles/developer.md"),
+                                           "records": {"type": "array"}}}, Path(__file__).parent / "roles/developer.md"),
+    "curator": AgentRole({"type": "object", "required": ["rationale", "pages"],
+                          "properties": {"rationale": {"type": "string"}, "pages": {"type": "array"}}},
+                         Path(__file__).parent / "roles/curator.md"),
     "reviewer": AgentRole({"type": "object", "required": ["decision", "reasons"],
                            "properties": {"decision": {"enum": ["approve", "reject"]},
                                           "reasons": {"type": "array"}}}, Path(__file__).parent / "roles/reviewer.md"),
@@ -130,8 +132,30 @@ def _training_input(worlds, result, reverse_traces=()):
             "reverse_evidence": reverse, "sample_scope": "all primary training worlds and all frozen budgets; no hidden sampling"}, evidence
 
 
+def _curate(request, knowledge, ledger, pages_seen, destination):
+    """One curator call per round: field evidence for KernelWiki pages, kept only when the citations check out and
+    the reviewer approves. Replay cannot score page text, so it never competes with the policy for the round."""
+    proposal = request("curator", {"knowledge_evidence": knowledge}, destination / "agents/curator")
+    write_json(destination / "curator.json", proposal)
+    try:
+        strict_fields(proposal, {"rationale", "pages"}, {"rationale", "pages"})
+        if not proposal["pages"]:
+            return []
+        check_pages(proposal["pages"], ledger, set(pages_seen))
+    except (KnowledgeError, TypeError, KeyError) as error:
+        write_json(destination / "curator-rejected.json", {"reason": str(error)})
+        return []
+    review = request("reviewer", {"pages": proposal["pages"], "knowledge_evidence": knowledge},
+                     destination / "agents/reviewer-curator")
+    write_json(destination / "review-curator.json", review)
+    if not isinstance(review, dict) or review.get("decision") != "approve":
+        return []
+    write_json(destination / "pages.json", {"pages": proposal["pages"], "rationale": proposal["rationale"]})
+    return proposal["pages"]
+
+
 def _candidate(proposal, incumbent, allowed_evidence):
-    strict_fields(proposal, {"kind", "rationale", "policy", "records", "pages"},
+    strict_fields(proposal, {"kind", "rationale", "policy", "records"},
                   {"kind", "rationale", "policy", "records"})
     if proposal["kind"] != "policy_update":
         if proposal["kind"] not in {"evidence_update", "needs_online"}:
@@ -249,7 +273,7 @@ def evolve(pool, wiki, output, *, agent=None, publish=False, max_candidates=4, p
         calls += 1
         return agent(role, payload, directory)
 
-    receipts, candidates, history, accepted_pages = [], [], [], {}
+    receipts, candidates, history, pages = [], [], [], []
     editing_base, editing_train = incumbent, incumbent_train
     try:
         if request("preflight", {}, destination / "agents/preflight") != {"ok": True}:
@@ -267,19 +291,13 @@ def evolve(pool, wiki, output, *, agent=None, publish=False, max_candidates=4, p
                 proposal = request("developer", payload, destination / f"agents/developer-{index}")
                 _check_frozen(frozen["code"], paths, pool, pool_ref)
                 write_json(destination / f"candidate-{index}.json", proposal)
-                pages = proposal.get("pages") or [] if isinstance(proposal, dict) else []
-                if pages:
-                    if not episodes:
-                        raise KnowledgeError("page amendments need the episode ledger")
-                    check_pages(pages, ledger, set(pages_seen))
                 candidate = _candidate(proposal, editing_base, allowed_evidence)
-                if candidate is None and not pages:
+                if candidate is None:
                     receipt.update(status=proposal["kind"], reason=proposal["rationale"])
                 else:
                     review = request("reviewer", {"proposal": proposal, "editing_base": base_payload,
-                                                "resolved_policy": candidate.to_dict() if candidate else None,
-                                                "training": training, "objective": asdict(objective)},
-                                     destination / f"agents/reviewer-{index}")
+                                                "resolved_policy": candidate.to_dict(), "training": training,
+                                                "objective": asdict(objective)}, destination / f"agents/reviewer-{index}")
                     _check_frozen(frozen["code"], paths, pool, pool_ref)
                     strict_fields(review, {"decision", "reasons"}, {"decision", "reasons"})
                     if review["decision"] not in {"approve", "reject"} or not isinstance(review["reasons"], list):
@@ -287,12 +305,7 @@ def evolve(pool, wiki, output, *, agent=None, publish=False, max_candidates=4, p
                     write_json(destination / f"review-{index}.json", review)
                     if review["decision"] == "reject":
                         receipt.update(status="review_rejected", reasons=review["reasons"])
-                    elif candidate is None:
-                        accepted_pages.update({page["path"]: page for page in pages})
-                        receipt.update(status="pages_accepted", pages=[page["path"] for page in pages])
                     else:
-                        accepted_pages.update({page["path"]: page for page in pages})
-                        receipt.update(pages=[page["path"] for page in pages])
                         train_result = evaluate(partitions["train"], candidate, budgets, objective, episodes=episodes)
                         write_json(destination / f"candidate-{index}-train.json", train_result)
                         if train_result["qualification"]["eligible"] and incumbent_train["qualification"]["eligible"]:
@@ -314,6 +327,10 @@ def evolve(pool, wiki, output, *, agent=None, publish=False, max_candidates=4, p
             write_json(destination / f"opportunity-{index}.json", history[-1])
             if progress:
                 progress({"opportunity": index, "status": receipt["status"]})
+        if episodes:
+            pages = _curate(request, knowledge, ledger, pages_seen, destination)
+            receipts.append({"opportunity": "curator", "status": "pages_accepted" if pages else "no_pages",
+                             "pages": [page["path"] for page in pages]})
     except (AgentUnavailable, FrozenExperimentChanged) as error:
         result = {"status": "agent_failed" if isinstance(error, AgentUnavailable) else "frozen_input_changed",
                   "error": str(error), "opportunities": receipts, "knowledge_revision": snapshot.revision,
@@ -340,9 +357,7 @@ def evolve(pool, wiki, output, *, agent=None, publish=False, max_candidates=4, p
             best = validation["summary"]["objective"]
     working = selected[1] if selected else incumbent
     write_json(destination / "selected-policy.json", working.to_dict())
-    if accepted_pages:
-        write_json(destination / "pages.json", {"pages": list(accepted_pages.values())})
-    result = {"selection": frozen["selection"], "pages": sorted(accepted_pages),
+    result = {"selection": frozen["selection"], "pages": sorted(page["path"] for page in pages),
               "status": "working_policy_selected" if selected else "no_change",
               "knowledge_revision": snapshot.revision, "policy_revision": working.revision,
               "selected": selected[0] if selected else None, "published": False,
