@@ -153,3 +153,36 @@ def test_changed_record_evidence_cannot_hide_behind_different_update_evidence(cl
     with pytest.raises(KnowledgeError, match="record evidence changed"):
         client.publish(replace(update, records=(record,)), original)
     assert client.snapshot().revision == original
+
+
+def test_verbatim_pages_are_added_published_and_rolled_back_without_touching_policy(client, tmp_path):
+    original = client.snapshot()
+    evidence = tmp_path / "provenance.json"
+    evidence.write_text('{"source": "GEAK@02bfbb0b"}\n')
+    ref = EvidenceRef(str(evidence), hashlib.sha256(evidence.read_bytes()).hexdigest())
+    card = b"---\nname: imported\norigin: geak\n---\n# Imported card\n- lever: keep it verbatim\n"
+    name = "knowledge/general/learned_knowledge/kernel-imported.md"
+    update = KnowledgeUpdate(original.policy, (), {"status": "evidence_update"}, (ref,), ((name, card),))
+    revision = client.publish(update, expected_revision=original.revision)
+    assert (client.root / name).read_bytes() == card
+    assert client.snapshot().policy == original.policy and dict(client.snapshot().files)[name] == card
+    client.rollback(original.revision, expected_revision=revision)
+    assert not (client.root / name).exists() and client.snapshot().revision == original.revision
+
+
+@pytest.mark.parametrize("name, payload, reason", [
+    ("knowledge/general/reference.md", b"# replaced\n", "new knowledge"),
+    ("knowledge/general/notes.txt", b"text\n", "new knowledge"),
+    ("corpus/outside.md", b"# outside\n", "new knowledge"),
+    ("knowledge/general/rule.md", b"---\nkernelwiki:\n  id: rule\n  title: Rule\n  policy_rule:\n    when: []\n"
+                                  b"    effect: prefer\n---\nbody\n", "policy rule"),
+])
+def test_verbatim_pages_cannot_replace_pages_leave_knowledge_or_carry_rules(client, tmp_path, name, payload, reason):
+    original = client.snapshot()
+    evidence = tmp_path / "provenance.json"
+    evidence.write_text("{}\n")
+    ref = EvidenceRef(str(evidence), hashlib.sha256(evidence.read_bytes()).hexdigest())
+    update = KnowledgeUpdate(original.policy, (), {"status": "evidence_update"}, (ref,), ((name, payload),))
+    with pytest.raises(KnowledgeError, match=reason):
+        client.publish(update, expected_revision=original.revision)
+    assert client.snapshot().revision == original.revision

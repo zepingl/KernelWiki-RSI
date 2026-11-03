@@ -44,6 +44,9 @@ class KnowledgeUpdate:
     records: tuple[KnowledgeRecord, ...]
     validation: dict
     evidence: tuple[EvidenceRef, ...] = ()
+    # New reference pages added verbatim at their own paths (e.g. an ingested learned card). They never replace
+    # an existing page and never carry a policy rule, so they cannot change policy behavior.
+    files: tuple[tuple[str, bytes], ...] = ()
 
 
 def _manifest(files):
@@ -250,6 +253,14 @@ class KnowledgeClient:
                     name = paths.get(record.id, f"knowledge/general/rsi/{record.id}.md")
                     files[name] = render_markdown(record)
                 records[record.id] = record
+            for name, payload in candidate.files:
+                relative_path(name)
+                if (not name.startswith("knowledge/") or not name.endswith(".md") or name in files
+                        or not isinstance(payload, bytes)):
+                    raise KnowledgeError(f"a verbatim page must be a new knowledge/*.md file: {name}")
+                if read_markdown(name.removeprefix("knowledge/"), payload.decode()).policy_rule is not None:
+                    raise KnowledgeError("a verbatim page cannot carry a policy rule")
+                files[name] = payload
             validate_policy(candidate.policy, tuple(records.values()))
             files["knowledge/policy.yaml"] = yaml.safe_dump(candidate.policy.to_dict(), sort_keys=False).encode()
             files["validation.json"] = canonical(candidate.validation)
