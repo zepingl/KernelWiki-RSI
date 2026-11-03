@@ -129,3 +129,36 @@ def test_amending_twice_equals_amending_once_with_the_last_evidence():
     once = knowledge_change.amend(ORIGINAL.encode(), "evidence A")
     assert once.decode().startswith(ORIGINAL) and once.decode().count(knowledge_change.SECTION_BEGIN) == 1
     assert knowledge_change.amend(once, "evidence B") == knowledge_change.amend(ORIGINAL.encode(), "evidence B")
+
+
+class ReviseOnceAgent(LoopAgent):
+    """The reviewer rejects the curator's first page section; the curator answers it and the revision passes."""
+
+    def __init__(self):
+        super().__init__()
+        self.page_reviews, self.previous = 0, []
+
+    def __call__(self, role, payload, directory):
+        if role == "reviewer" and "pages" in payload:
+            self.page_reviews += 1
+            if self.page_reviews == 1:
+                return {"decision": "reject", "reasons": ["say it is one recorded round per kernel"]}
+            return {"decision": "approve", "reasons": ["revised"]}
+        if role == "curator":
+            self.previous.append(payload["previous"])
+            if payload["previous"] is None:
+                return super().__call__(role, payload, directory)
+            row = next(row for row in payload["knowledge_evidence"] if row["path"] == PAGE)
+            return {"rationale": "answered the review", "pages": [{
+                "path": PAGE, "section": "One recorded first round per kernel (association): the direction that "
+                                         "followed this page beat its siblings.", "citations": [row["citable"][0]["node"]]}]}
+        return super().__call__(role, payload, directory)
+
+
+def test_the_curator_revises_once_from_the_reviewers_reasons(loop, tmp_path):
+    pool, wiki = loop
+    agent = ReviseOnceAgent()
+    result = iterate(pool, wiki, tmp_path / "run", rounds=1, agent=agent, max_candidates=1)
+    assert result["rounds"][0]["pages"] == [PAGE]
+    assert agent.previous[1]["review"]["reasons"] == ["say it is one recorded round per kernel"]
+    assert "One recorded first round per kernel" in (wiki / PAGE).read_text()

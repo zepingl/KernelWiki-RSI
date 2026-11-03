@@ -132,26 +132,33 @@ def _training_input(worlds, result, reverse_traces=()):
             "reverse_evidence": reverse, "sample_scope": "all primary training worlds and all frozen budgets; no hidden sampling"}, evidence
 
 
+CURATOR_ATTEMPTS = 2   # one revision, answering the reviewer, as the developer does across opportunities
+
+
 def _curate(request, knowledge, ledger, pages_seen, destination):
-    """One curator call per round: field evidence for KernelWiki pages, kept only when the citations check out and
-    the reviewer approves. Replay cannot score page text, so it never competes with the policy for the round."""
-    proposal = request("curator", {"knowledge_evidence": knowledge}, destination / "agents/curator")
-    write_json(destination / "curator.json", proposal)
-    try:
-        strict_fields(proposal, {"rationale", "pages"}, {"rationale", "pages"})
-        if not proposal["pages"]:
-            return []
-        check_pages(proposal["pages"], ledger, set(pages_seen))
-    except (KnowledgeError, TypeError, KeyError) as error:
-        write_json(destination / "curator-rejected.json", {"reason": str(error)})
-        return []
-    review = request("reviewer", {"pages": proposal["pages"], "knowledge_evidence": knowledge},
-                     destination / "agents/reviewer-curator")
-    write_json(destination / "review-curator.json", review)
-    if not isinstance(review, dict) or review.get("decision") != "approve":
-        return []
-    write_json(destination / "pages.json", {"pages": proposal["pages"], "rationale": proposal["rationale"]})
-    return proposal["pages"]
+    """Field evidence for KernelWiki pages, kept only when the citations check out and the reviewer approves.
+    Replay cannot score page text, so it never competes with the policy for the round."""
+    previous = None
+    for attempt in range(1, CURATOR_ATTEMPTS + 1):
+        proposal = request("curator", {"knowledge_evidence": knowledge, "previous": previous},
+                           destination / f"agents/curator-{attempt}")
+        write_json(destination / f"curator-{attempt}.json", proposal)
+        try:
+            strict_fields(proposal, {"rationale", "pages"}, {"rationale", "pages"})
+            if not proposal["pages"]:
+                return []
+            check_pages(proposal["pages"], ledger, set(pages_seen))
+        except (KnowledgeError, TypeError, KeyError) as error:
+            previous = {"proposal": proposal, "rejected_by_checks": str(error)}
+            continue
+        review = request("reviewer", {"pages": proposal["pages"], "knowledge_evidence": knowledge},
+                         destination / f"agents/reviewer-curator-{attempt}")
+        write_json(destination / f"review-curator-{attempt}.json", review)
+        if isinstance(review, dict) and review.get("decision") == "approve":
+            write_json(destination / "pages.json", {"pages": proposal["pages"], "rationale": proposal["rationale"]})
+            return proposal["pages"]
+        previous = {"proposal": proposal, "review": review}
+    return []
 
 
 def _candidate(proposal, incumbent, allowed_evidence):
