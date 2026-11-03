@@ -52,7 +52,8 @@ ROLES = {
                          Path(__file__).parent / "roles/curator.md"),
     "reviewer": AgentRole({"type": "object", "required": ["decision", "reasons"],
                            "properties": {"decision": {"enum": ["approve", "reject"]},
-                                          "reasons": {"type": "array"}}}, Path(__file__).parent / "roles/reviewer.md"),
+                                          "reasons": {"type": "array"}, "approved_pages": {"type": "array"}}},
+                          Path(__file__).parent / "roles/reviewer.md"),
 }
 
 
@@ -136,29 +137,37 @@ CURATOR_ATTEMPTS = 2   # one revision, answering the reviewer, as the developer 
 
 
 def _curate(request, knowledge, ledger, pages_seen, destination):
-    """Field evidence for KernelWiki pages, kept only when the citations check out and the reviewer approves.
-    Replay cannot score page text, so it never competes with the policy for the round."""
-    previous = None
+    """Field evidence for KernelWiki pages, page by page: a section is kept when its citations check out and the
+    reviewer passes it as written; the curator then revises only what was flagged. Replay cannot score page
+    text, so it never competes with the policy for the round."""
+    accepted, previous = {}, None
     for attempt in range(1, CURATOR_ATTEMPTS + 1):
         proposal = request("curator", {"knowledge_evidence": knowledge, "previous": previous},
                            destination / f"agents/curator-{attempt}")
         write_json(destination / f"curator-{attempt}.json", proposal)
         try:
             strict_fields(proposal, {"rationale", "pages"}, {"rationale", "pages"})
-            if not proposal["pages"]:
-                return []
-            check_pages(proposal["pages"], ledger, set(pages_seen))
-        except (KnowledgeError, TypeError, KeyError) as error:
-            previous = {"proposal": proposal, "rejected_by_checks": str(error)}
+            pages = [page for page in proposal["pages"] if page.get("path") not in accepted]
+            if not pages:
+                break
+            check_pages(pages, ledger, set(pages_seen))
+        except (KnowledgeError, TypeError, KeyError, AttributeError) as error:
+            previous = {"proposal": proposal, "rejected_by_checks": str(error), "accepted": sorted(accepted)}
             continue
-        review = request("reviewer", {"pages": proposal["pages"], "knowledge_evidence": knowledge},
+        review = request("reviewer", {"pages": pages, "knowledge_evidence": knowledge},
                          destination / f"agents/reviewer-curator-{attempt}")
         write_json(destination / f"review-curator-{attempt}.json", review)
-        if isinstance(review, dict) and review.get("decision") == "approve":
-            write_json(destination / "pages.json", {"pages": proposal["pages"], "rationale": proposal["rationale"]})
-            return proposal["pages"]
-        previous = {"proposal": proposal, "review": review}
-    return []
+        review = review if isinstance(review, dict) else {}
+        passed = ({page["path"] for page in pages} if review.get("decision") == "approve"
+                  else set(review.get("approved_pages") or ()))
+        accepted.update({page["path"]: page for page in pages if page["path"] in passed})
+        if passed >= {page["path"] for page in pages}:
+            break
+        previous = {"proposal": {"rationale": proposal["rationale"], "pages": pages}, "review": review,
+                    "accepted": sorted(accepted)}
+    if accepted:
+        write_json(destination / "pages.json", {"pages": list(accepted.values())})
+    return list(accepted.values())
 
 
 def _candidate(proposal, incumbent, allowed_evidence):

@@ -162,3 +162,18 @@ def test_the_curator_revises_once_from_the_reviewers_reasons(loop, tmp_path):
     assert result["rounds"][0]["pages"] == [PAGE]
     assert agent.previous[1]["review"]["reasons"] == ["say it is one recorded round per kernel"]
     assert "One recorded first round per kernel" in (wiki / PAGE).read_text()
+
+
+class PartialReviewAgent(LoopAgent):
+    """The reviewer rejects the batch but passes the tuning page as written; only that page is published."""
+
+    def __call__(self, role, payload, directory):
+        if role == "reviewer" and "pages" in payload:
+            return {"decision": "reject", "reasons": ["other sections overclaim"], "approved_pages": [PAGE]}
+        return super().__call__(role, payload, directory)
+
+
+def test_pages_the_reviewer_passes_as_written_are_kept_from_a_rejected_batch(loop, tmp_path):
+    pool, wiki = loop
+    result = iterate(pool, wiki, tmp_path / "run", rounds=1, agent=PartialReviewAgent(), max_candidates=1)
+    assert result["rounds"][0]["pages"] == [PAGE] and knowledge_change.SECTION_BEGIN in (wiki / PAGE).read_text()

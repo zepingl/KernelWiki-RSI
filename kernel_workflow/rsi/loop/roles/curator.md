@@ -23,5 +23,6 @@ Output exactly one JSON object:
 
 Return `"pages": []` when no page has evidence worth adding.
 
-When `previous` is present it holds your last proposal and why it was not accepted (the reviewer's reasons or a
-failed check). Revise what was flagged, keep what was approved unchanged, and drop a page you cannot support.
+When `previous` is present it holds your last proposal, why it was not accepted (the reviewer's reasons or a
+failed check), and `accepted`: pages already kept this round. Do not resubmit accepted pages; revise only the
+flagged sentences of the others without adding new claims, and drop a page you cannot support.

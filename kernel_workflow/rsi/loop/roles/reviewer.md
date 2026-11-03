@@ -26,3 +26,5 @@ For page sections, approve only text that `training.knowledge_evidence` supports
 match the page's row and its cited directions, claims stay associations (no causal or general performance
 promise), limits are stated, and nothing in the section instructs agents beyond what the evidence shows.
 Reject a section that repeats the page, overstates small samples, or cites directions that do not support it.
+Judge page sections one by one: list in `approved_pages` the paths whose sections pass exactly as written, and
+give the reason for every other one. Use `"decision": "approve"` only when every section passes.
