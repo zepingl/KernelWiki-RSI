@@ -82,6 +82,16 @@ def main(argv=None):
     evolver.add_argument("--node")
     evolver.add_argument("--claude")
     evolver.add_argument("--agent-timeout", type=int, default=300)
+    iterator = commands.add_parser("iterate", help="evolve on a frozen buffer and publish each gated KernelWiki change "
+                                                   "to an experiment branch, until a round publishes nothing")
+    iterator.add_argument("--pool", required=True)
+    iterator.add_argument("--wiki", required=True)
+    iterator.add_argument("--output", required=True)
+    iterator.add_argument("--rounds", type=int, default=3)
+    iterator.add_argument("--max-candidates", type=int, default=4)
+    iterator.add_argument("--node")
+    iterator.add_argument("--claude")
+    iterator.add_argument("--agent-timeout", type=int, default=300)
     projector = commands.add_parser("project-kernelwiki", help="read-only: KernelWiki git history as knowledge trees")
     projector.add_argument("--repo", required=True)
     projector.add_argument("--rev", default="HEAD")
@@ -208,6 +218,10 @@ def main(argv=None):
                             agent=agent, policy=working_policy(), max_candidates=args.max_candidates,
                             publish=args.publish, progress=progress, episodes=args.episodes)
             result = {key: value for key, value in result.items() if key not in {"opportunities", "artifacts"}}
+        elif args.command == "iterate":
+            from .loop.iterate import iterate
+            result = iterate(args.pool, args.wiki, args.output, rounds=args.rounds, agent=agent,
+                             max_candidates=args.max_candidates, progress=progress)
         elif args.command == "project-kernelwiki":
             from .evidence import write_jsonl
             from .report import knowledge_metrics

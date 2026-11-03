@@ -19,7 +19,7 @@ READ_ROLES = {"pointed", "read", "cited", "adopted", "skill"}
 SOURCE = "source"
 OBSERVED_ROLES = {"read", "adopted"}
 CODE_MEASURERS = {"engineer", "verifier", "director", "e2e_gate"}
-GATES = {"schema_gate", "reproduce", "gpu_validate", "replay_gate", "online_gate"}
+GATES = {"schema_gate", "reproduce", "gpu_validate", "replay_gate", "online_gate", "evidence_gate"}
 CODE_VERDICTS = {"committed", "incorrect", "failed", "stop"}
 KNOWLEDGE_VERDICTS = {"accepted", "rejected", "retired"}
 

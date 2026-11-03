@@ -64,10 +64,24 @@ parent choice. Propose `"policy": {"schema_version": 2, "rule_ids": [...], "top_
   (1 to 8). Conditions may use only round, stagnation, remaining_budget, best_gain.
 - `{"when": [...], "effect": "skip"}` / `"select"`: drop, or keep only, planned directions that match.
   Conditions may also use slot_index, specialty, mode (normal/deep) and knowledge (`contains` one
-  KernelWiki node id the plan pointed to; ids outside KernelWiki never match).
+  KernelWiki page path a step's slot lists under `knowledge`, e.g. `knowledge/operator/x/backend/y.md`;
+  a path matches every version of that page).
 - `{"when": [...], "effect": "stop"}`: stop before this round; global fields only.
 
 Without rules every planned direction is dispatched, which is what the recorded lane did. Each round is
 scored in the state history actually reached: the best selected direction's gain over its parent, minus
 the direction cost. A selected direction that history never dispatched is unsupported and makes the
 candidate ineligible. Do not use v1 effects (prefer, defer) in schema 2.
+
+## KernelWiki pages (field evidence)
+
+`training.knowledge_evidence` lists KernelWiki pages recorded runs used: how many directions used each, how
+often they improved over their parent, how often history continued them, paired contrasts with sibling
+directions that did not use the page, the directions you may cite (`citable`), and the start of the page.
+Any proposal may add `"pages": [{"path": ..., "section": ..., "citations": [direction node ids]}]`. Each
+section is plain text (at most 1500 characters, no front matter) that is placed in one marked block at the
+end of that page; a later proposal for the same page replaces the block, the rest of the page never changes.
+Write what the evidence shows and its limits: counts, contrasts, the regime where it held or failed, and that
+it is an association from recorded runs, not causal proof. Cite only directions from that page's `citable`
+list. Use `"kind": "evidence_update"` when a proposal changes pages only. Do not restate the page; add what a
+reader of the page would not otherwise know from these runs.

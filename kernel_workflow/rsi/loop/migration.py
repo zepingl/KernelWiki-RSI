@@ -37,6 +37,12 @@ SCOPE = "kernelwiki-policy-migration"
 LIMITS = ["Offline replay on recorded episodes only: no fresh holdout and no paired online gate were run.",
           "Each round is scored where history actually was; the policy cannot change later states it would reach.",
           "No GEAK lane reads a schema-2 policy yet; the parent scheduler refuses it explicitly."]
+KNOWLEDGE_GATES = {"ingest_learned": "reproduce", "amend_pages": "evidence_gate"}
+AMEND_LIMITS = ["Field evidence summarizes recorded GEAK runs (history read GEAK's copy of these pages); "
+                "it is an association, not causal attribution.",
+                "Text changes cannot be scored by replay: whether agents use the amended pages better is measured "
+                "by later online runs.",
+                "Reviewed by the inner-round reviewer agent; in iterate it is published without a person."]
 INGEST_LIMITS = ["Adds knowledge GEAK already held; nothing was newly measured.",
                  "Placed under general/learned_knowledge because KernelWiki has no operator page for these kernel classes.",
                  "No online gate: whether agents use these cards well is measured by later runs."]
@@ -104,17 +110,24 @@ def change(source, wiki):
         snapshot, pages, evidence = knowledge_change.reproduce(source, wiki)
         value = read_json(source / "proposal.json")
         update = KnowledgeUpdate(snapshot.policy, (), {"status": "evidence_update", "kind": value["kind"],
-                                                       "gates": {"reproduced_from_pinned_source": True,
+                                                       "gates": {KNOWLEDGE_GATES[value["kind"]]: True,
                                                                  "human_approval": True, "online": False}},
                                  tuple(evidence), pages)
-        summary = {"source_repository": value["source"],
-                   "changes": [{"path": item["path"], "change": "added", "slug": item["slug"],
-                                "kernel_class": item["kernel_class"]} for item in value["files"]],
-                   "gate": {"rule": "each page re-rendered from the pinned GEAK blob equals the proposal byte for byte; "
-                                    "no target exists in KernelWiki"},
-                   "rationale": value["rationale"]}
-        return Change(value["kind"], source, snapshot, update, tuple(path for path, _ in pages), "reproduce",
-                      summary, f"ingest {len(pages)} GEAK learned cards", tuple(INGEST_LIMITS))
+        if value["kind"] == "ingest_learned":
+            summary = {"source_repository": value["source"],
+                       "changes": [{"path": item["path"], "change": "added", "slug": item["slug"],
+                                    "kernel_class": item["kernel_class"]} for item in value["files"]],
+                       "gate": {"rule": "each page re-rendered from the pinned GEAK blob equals the proposal byte for "
+                                        "byte; no target exists in KernelWiki"}}
+            title, limits = f"ingest {len(pages)} GEAK learned cards", INGEST_LIMITS
+        else:
+            summary = {"changes": [{"path": item["path"], "change": "field evidence", "section": item["section"],
+                                    "citations": item["citations"]} for item in value["files"]],
+                       "gate": {"rule": "each page equals the version the round read plus one field-evidence block; "
+                                        "every citation is a recorded direction that used the page; reviewer approved"}}
+            title, limits = f"add field evidence to {len(pages)} KernelWiki pages", AMEND_LIMITS
+        return Change(value["kind"], source, snapshot, update, tuple(path for path, _ in pages),
+                      KNOWLEDGE_GATES[value["kind"]], {**summary, "rationale": value["rationale"]}, title, tuple(limits))
     snapshot, incumbent, candidate, before, after, evidence = reproduce(source, wiki)
     previous = {record.id: record for record in snapshot.records}
     changes = [{"id": record.id, "change": "added" if record.id not in previous else "revised",

@@ -314,6 +314,41 @@ def knowledge_ledger(forest):
     return {key: {**value, "roles": dict(value["roles"])} for key, value in sorted(rows.items())}
 
 
+def document_path(node_id):
+    """The KernelWiki file a version node belongs to: the identity that survives the file's next revision."""
+    return node_id.removeprefix("kernelwiki:").rsplit("@", 1)[0]
+
+
+def document_ledger(forest):
+    """knowledge_ledger summed over every version of a page: the directions that used it (gain over their parent,
+    whether history continued them) and the paired sibling contrasts. Pages no direction used are omitted."""
+    pages = defaultdict(lambda: {"versions": [], "roles": defaultdict(int), "directions": [], "contrasts": []})
+    for node_id, row in knowledge_ledger(forest).items():
+        if not row["directions"] and not row["roles"]:
+            continue
+        page = pages[document_path(node_id)]
+        page["versions"].append(node_id)
+        for role, count in row["roles"].items():
+            page["roles"][role] += count
+        page["directions"] += row["directions"]
+        page["contrasts"] += [item["gain"] for item in row["contrasts"]]
+    return {path: {**page, "roles": dict(page["roles"]), "summary": _summary(page)} for path, page in sorted(pages.items())}
+
+
+IMPROVED = 0.005   # a direction "improved" when it beats its parent by more than measurement noise (~0.5%)
+
+
+def _summary(page):
+    scored = [item["gain"] for item in page["directions"] if item["gain"] is not None]
+    gains = page["contrasts"]
+    return {"directions": len(page["directions"]),
+            "improved": sum(gain > IMPROVED for gain in scored) / len(scored) if scored else None,
+            "continued": sum(item["continued"] for item in page["directions"]) / len(page["directions"])
+            if page["directions"] else None,
+            "pairs": len(gains), "mean_contrast": sum(gains) / len(gains) if gains else None,
+            "min_contrast": min(gains, default=None), "max_contrast": max(gains, default=None)}
+
+
 def knowledge_coverage(forest):
     """P1: share of knowledge reads in code trees that resolve to a KernelWiki node."""
     resolved = sum(1 for view in forest.trees.values() if view.tree.subject == CODE

@@ -4,7 +4,7 @@ from itertools import pairwise
 
 from ..discovery import GenerationSpec
 from ..harness import Action, ExpansionObservation, Observation, ParentView, Rollout, SlotView, slot_cost
-from ..trace.tree import TreeView, replay_node
+from ..trace.tree import TreeView, document_path, replay_node
 from .cohorts import kernel_of
 
 __all__ = ["Action", "Observation", "ParentView", "ReplayWorld", "TreeReplay", "episode_replay", "replay"]
@@ -100,8 +100,10 @@ def episode_replay(tree, policy, budget, rule="step"):
     steps = tree.expansions
     for position, expansion in enumerate(steps, 1):
         children = {node.slot: node for node in tree.nodes.values() if node.expansion == expansion.id}
+        # A rule names a KernelWiki document by path, so it keeps matching after the page is revised.
         slots = tuple(SlotView(index, slot.specialty, slot.mode,
-                               frozenset(use.target for use in children[index].uses if use.role in PLANNED_ROLES)
+                               frozenset(document_path(use.target) for use in children[index].uses
+                                         if use.role in PLANNED_ROLES)
                                if index in children else frozenset())
                       for index, slot in enumerate(expansion.plan.slots))
         action = policy.select_expansion(ExpansionObservation(tree.tree.task, position, stagnation, remaining,

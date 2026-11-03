@@ -25,6 +25,7 @@ from ..harness import INTERPRETER_VERSION, Policy
 from ..replay_buffer.cohorts import cohorts, kernel_of
 from ..replay_buffer.evaluate import evaluate, qualifies
 from ..replay_buffer.objective import ReplayObjective
+from ..replay_buffer.simulator import PLANNED_ROLES
 from ..replay_buffer.store import open_buffer
 from ..reverse_engineering.trace import investigation_input
 from ..runtime import (
@@ -36,6 +37,8 @@ from ..runtime import (
     RuntimeAgent,
     frozen_sources,
 )
+from ..trace.tree import document_ledger, document_path, fold
+from .knowledge_change import check_pages
 
 ROLES = {
     "preflight": AgentRole({"type": "object", "required": ["ok"], "properties": {"ok": {"type": "boolean"}}},
@@ -43,7 +46,8 @@ ROLES = {
     "developer": AgentRole({"type": "object", "required": ["kind", "rationale", "policy", "records"],
                             "properties": {"kind": {"enum": ["policy_update", "evidence_update", "needs_online"]},
                                            "rationale": {"type": "string"}, "policy": {"type": "object"},
-                                           "records": {"type": "array"}}}, Path(__file__).parent / "roles/developer.md"),
+                                           "records": {"type": "array"}, "pages": {"type": "array"}}},
+                           Path(__file__).parent / "roles/developer.md"),
     "reviewer": AgentRole({"type": "object", "required": ["decision", "reasons"],
                            "properties": {"decision": {"enum": ["approve", "reject"]},
                                           "reasons": {"type": "array"}}}, Path(__file__).parent / "roles/reviewer.md"),
@@ -61,22 +65,45 @@ def _check_frozen(code, paths, pool, pool_ref):
         raise FrozenExperimentChanged(str(error)) from error
 
 
-def _tree_training_input(trees, result):
-    """Recorded episodes: per-step plans, selections and revealed outcomes; citable evidence is the measures'."""
+def _knowledge_evidence(ledger, pages):
+    """Pages runs used often or that have paired sibling contrasts: what followed when directions used them, the
+    directions a page amendment may cite, and the start of the page the round read."""
+    rows = []
+    for path, page in ledger.items():
+        summary = page["summary"]
+        if summary["directions"] < 10 and summary["pairs"] < 3:
+            continue
+        scored = sorted((item for item in page["directions"] if item["gain"] is not None), key=lambda item: item["gain"])
+        rows.append({"path": path, **summary, "in_kernelwiki": path in pages,
+                     "citable": [{"node": item["node"], "gain": item["gain"], "continued": item["continued"]}
+                                 for item in [*scored[:4], *scored[-4:]]],
+                     "page_start": pages.get(path, b"")[:1500].decode(errors="replace")})
+    return rows
+
+
+def _tree_training_input(trees, result, knowledge=()):
+    """Recorded episodes: per-step plans (with the KernelWiki pages each direction pointed to), selections and
+    revealed outcomes, plus the page-level evidence; citable policy evidence is the measures'."""
     evidence, examples = {}, []
     for tree in sorted(trees, key=lambda item: (kernel_of(item), item.id)):
         for measures in tree.measures.values():
             for measure in measures:
                 for item in measure.evidence:
                     evidence[canonical(asdict(item))] = item
+        pointed = {(node.expansion, node.slot): sorted({document_path(use.target) for use in node.uses
+                                                        if use.role in PLANNED_ROLES})
+                   for node in tree.nodes.values() if node.expansion}
         steps = [{"round": position, "parent_quality": tree.outcome(expansion.parents[0]).status,
-                  "slots": [asdict(slot) for slot in expansion.plan.slots], "dispatched": expansion.plan.dispatched}
+                  "slots": [{**asdict(slot), "knowledge": pointed.get((expansion.id, index), [])}
+                            for index, slot in enumerate(expansion.plan.slots)],
+                  "dispatched": expansion.plan.dispatched}
                  for position, expansion in enumerate(tree.expansions, 1)]
         examples.append({"tree": tree.id, "kernel": kernel_of(tree), "state": asdict(tree.tree.task), "steps": steps,
                          "trajectories": [trace for trace in result["traces"] if trace["world_id"] == tree.id],
                          "evidence": [asdict(item) for measure in tree.measures[tree.root.id]
                                       for item in measure.evidence]})
     return {"summary": result["summary"], "qualification": result["qualification"], "examples": examples,
+            "knowledge_evidence": list(knowledge),
             "reverse_evidence": [], "sample_scope": "all primary training episodes and all frozen budgets"}, evidence
 
 
@@ -104,7 +131,7 @@ def _training_input(worlds, result, reverse_traces=()):
 
 
 def _candidate(proposal, incumbent, allowed_evidence):
-    strict_fields(proposal, {"kind", "rationale", "policy", "records"},
+    strict_fields(proposal, {"kind", "rationale", "policy", "records", "pages"},
                   {"kind", "rationale", "policy", "records"})
     if proposal["kind"] != "policy_update":
         if proposal["kind"] not in {"evidence_update", "needs_online"}:
@@ -205,7 +232,10 @@ def evolve(pool, wiki, output, *, agent=None, publish=False, max_candidates=4, p
     incumbent_train = evaluate(partitions["train"], incumbent, budgets, objective, episodes=episodes)
     write_json(destination / "incumbent-train.json", incumbent_train)
     if episodes:
-        training, allowed_evidence = _tree_training_input(partitions["train"], incumbent_train)
+        # Pages are judged on everything recorded about them, not only on the primary training episodes.
+        ledger, pages_seen = document_ledger(fold(buffer.trace)), dict(snapshot.files)
+        knowledge = _knowledge_evidence(ledger, pages_seen)
+        training, allowed_evidence = _tree_training_input(partitions["train"], incumbent_train, knowledge)
     else:
         reverse_traces = buffer.reverse_reports(manifest["splits"]["train"])
         training, allowed_evidence = _training_input(partitions["train"], incumbent_train, reverse_traces)
@@ -219,7 +249,7 @@ def evolve(pool, wiki, output, *, agent=None, publish=False, max_candidates=4, p
         calls += 1
         return agent(role, payload, directory)
 
-    receipts, candidates, history = [], [], []
+    receipts, candidates, history, accepted_pages = [], [], [], {}
     editing_base, editing_train = incumbent, incumbent_train
     try:
         if request("preflight", {}, destination / "agents/preflight") != {"ok": True}:
@@ -237,13 +267,19 @@ def evolve(pool, wiki, output, *, agent=None, publish=False, max_candidates=4, p
                 proposal = request("developer", payload, destination / f"agents/developer-{index}")
                 _check_frozen(frozen["code"], paths, pool, pool_ref)
                 write_json(destination / f"candidate-{index}.json", proposal)
+                pages = proposal.get("pages") or [] if isinstance(proposal, dict) else []
+                if pages:
+                    if not episodes:
+                        raise KnowledgeError("page amendments need the episode ledger")
+                    check_pages(pages, ledger, set(pages_seen))
                 candidate = _candidate(proposal, editing_base, allowed_evidence)
-                if candidate is None:
+                if candidate is None and not pages:
                     receipt.update(status=proposal["kind"], reason=proposal["rationale"])
                 else:
                     review = request("reviewer", {"proposal": proposal, "editing_base": base_payload,
-                                                "resolved_policy": candidate.to_dict(), "training": training,
-                                                "objective": asdict(objective)}, destination / f"agents/reviewer-{index}")
+                                                "resolved_policy": candidate.to_dict() if candidate else None,
+                                                "training": training, "objective": asdict(objective)},
+                                     destination / f"agents/reviewer-{index}")
                     _check_frozen(frozen["code"], paths, pool, pool_ref)
                     strict_fields(review, {"decision", "reasons"}, {"decision", "reasons"})
                     if review["decision"] not in {"approve", "reject"} or not isinstance(review["reasons"], list):
@@ -251,7 +287,12 @@ def evolve(pool, wiki, output, *, agent=None, publish=False, max_candidates=4, p
                     write_json(destination / f"review-{index}.json", review)
                     if review["decision"] == "reject":
                         receipt.update(status="review_rejected", reasons=review["reasons"])
+                    elif candidate is None:
+                        accepted_pages.update({page["path"]: page for page in pages})
+                        receipt.update(status="pages_accepted", pages=[page["path"] for page in pages])
                     else:
+                        accepted_pages.update({page["path"]: page for page in pages})
+                        receipt.update(pages=[page["path"] for page in pages])
                         train_result = evaluate(partitions["train"], candidate, budgets, objective, episodes=episodes)
                         write_json(destination / f"candidate-{index}-train.json", train_result)
                         if train_result["qualification"]["eligible"] and incumbent_train["qualification"]["eligible"]:
@@ -299,7 +340,9 @@ def evolve(pool, wiki, output, *, agent=None, publish=False, max_candidates=4, p
             best = validation["summary"]["objective"]
     working = selected[1] if selected else incumbent
     write_json(destination / "selected-policy.json", working.to_dict())
-    result = {"selection": frozen["selection"],
+    if accepted_pages:
+        write_json(destination / "pages.json", {"pages": list(accepted_pages.values())})
+    result = {"selection": frozen["selection"], "pages": sorted(accepted_pages),
               "status": "working_policy_selected" if selected else "no_change",
               "knowledge_revision": snapshot.revision, "policy_revision": working.revision,
               "selected": selected[0] if selected else None, "published": False,

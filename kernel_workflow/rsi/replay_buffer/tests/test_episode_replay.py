@@ -20,7 +20,8 @@ from kernel_workflow.rsi.trace.tree import fold
 from kernelwiki.knowledge import Condition, EvidenceRef, KernelState, KnowledgePolicy, KnowledgeRecord, PolicyRule
 
 EVIDENCE = (EvidenceRef("fixture.json", "a" * 64),)
-CARD = "kw/general/tuning@1"
+CARD = "kernelwiki:knowledge/general/tuning.md@abc123456789"
+PAGE = "knowledge/general/tuning.md"
 
 
 def state(token):
@@ -89,7 +90,8 @@ def test_step_rule_scores_each_round_where_history_was_and_truncate_cuts_lost_co
 
 def test_selection_by_pointed_knowledge_and_undispatched_slots():
     tree = lane(pointed=(1, 2))
-    picked = episode_replay(tree, policy(PolicyRule((Condition("knowledge", "contains", CARD),), "select")), 1)
+    # A rule names the page by path, so it matches whichever version the direction pointed to.
+    picked = episode_replay(tree, policy(PolicyRule((Condition("knowledge", "contains", PAGE),), "select")), 1)
     assert picked["events"][0]["action"] == [2]
     unsupported = episode_replay(lane(undispatched=1), policy(PolicyRule((Condition("slot_index", "gte", 3),),
                                                                          "select")), 1)

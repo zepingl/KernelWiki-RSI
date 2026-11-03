@@ -18,6 +18,7 @@ from kernelwiki.knowledge import EvidenceRef
 
 from ...trace.gaps import Gap
 from ...trace.records import Decide, Expansion, GapRecord, Node, Tree, Use
+from ...trace.tree import document_path
 
 RSI_GATE = "KernelWiki-RSI paired replay and fresh online holdout (qualify)"
 GATES = {"evidence_set": "corpus re-extraction and test_corpus", "decision_card": "_render_decisions --check",
@@ -208,9 +209,9 @@ def knowledge_index(records):
     index = {}
     for record in records:
         if isinstance(record, Node) and record.id.startswith("kernelwiki:") and "#" not in record.id:
-            index[record.id.removeprefix("kernelwiki:").rsplit("@", 1)[0]] = record.id
+            index[document_path(record.id)] = record.id
         elif isinstance(record, Decide) and record.verdict == "retired" and record.node and "#" not in record.node:
-            path = record.node.removeprefix("kernelwiki:").rsplit("@", 1)[0]
+            path = document_path(record.node)
             if index.get(path) == record.node:
                 del index[path]
     return index
