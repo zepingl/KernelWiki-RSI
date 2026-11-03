@@ -21,8 +21,9 @@ __all__ = ["experiment", "online_config"]
 
 @pytest.fixture
 def cycle_config(experiment, online_config, tmp_path):
-    pool, wiki, worlds = experiment
-    _, _, online = online_config
+    pool, _, worlds = experiment
+    # A cycle reads KernelWiki twice: its policy, and a view pinned to a commit, so the wiki is a git checkout.
+    _, wiki, online = online_config
     flattened = []
     for world in worlds:
         first = tuple(replace(node, measurement=replace(node.measurement, primary_score=2.6))

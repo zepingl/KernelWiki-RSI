@@ -21,7 +21,7 @@ flowchart LR
   end
   subgraph POOL["pool-schema4-01/"]
     M["manifest.json<br/>hashes · splits · budgets · cohorts"]
-    T["trace.jsonl<br/>12,598 records"]
+    T["trace.jsonl<br/>10,568 records"]
     W["worlds / attempts.jsonl<br/>v1, kept in parallel"]
   end
   RAW -- ingest --> POOL
@@ -191,3 +191,39 @@ flowchart LR
 | Gate | pooled replay gate | Every claim traces to a measured node; replay cannot score text changes |
 | Proof of effect | online pairing | online pairing: same runs with the old vs the new knowledge revision |
 | Change record | `knowledge:policy` revise | `knowledge:*` revise / distill / ingest / merge / retire (v3 already defines these ops) |
+
+---
+
+## 6 · Root fix: identity recorded at read time, KernelWiki the only source (2026-11-03, experiment branch)
+
+```mermaid
+flowchart LR
+  KW["KernelWiki @ pinned commit"] -- "knowledge_view.materialize<br/>one rule table" --> V["GEAK-layout view<br/>+ manifest {view path → KernelWiki doc}"]
+  V --> RUN["RSI online run<br/>agents read the view"]
+  RUN -- "kk_refs looked up in manifest" --> U["knowledge use = doc @ commit<br/>(observed, no matching)"]
+  H["history (GEAK's own copy)"] -- "same rule table, by path" --> UH["knowledge use = live doc<br/>(inferred, basis recorded)"]
+```
+
+| | Before | After |
+| :-- | --: | --: |
+| Historical reads resolved to a KernelWiki document | 0 / 2,475 | **2,277 / 2,475 (92%)** |
+| Conventional paths found by RSI online agents (`operators/<op>/…`) for the 7 GLM kernels | none (KernelWiki layout was handed over) | operator and language docs found for all 7 |
+| Identity of an online knowledge use | not recorded | `doc @ commit` from the view manifest |
+
+**What the 198 still-unresolved reads are:**
+- **133 are learned cards GEAK distilled during these runs and never ingested into KernelWiki.** Write-back is broken.
+- **49 are directory listings.** A directory is not a document.
+- **15 are operators that exist only in GEAK.** KernelWiki lacks 34 of GEAK's 54 operators.
+
+**New finding:** the dsa kernels use gluon (155 plans). KernelWiki has `sparse_attention_nsa/backend/gluon_aiter.md`,
+but agents look for `backends/gluon.md`, which neither side has, so this card is never reached.
+
+**Ledger** (`pool-schema5-01-trace-report.md`, "Knowledge findings"):
+- 76 of 760 live KernelWiki file versions were read;
+- 21 documents have mixed evidence;
+- 21 trunk steps improved more than 0.5% with no knowledge (distillation candidates, up to +12.4%).
+
+**Not yet covered:**
+- Online runs observe what the plan points to (`kk_refs`), not every file an engineer opens. That needs a read
+  hook, as campaign audits already have.
+- Online runs still emit v1 worlds; converting them to schema-4 trees is a separate step.

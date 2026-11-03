@@ -282,7 +282,7 @@ def knowledge_ledger(forest):
                 "op": expansion.op, "sources": sorted({use.target for use in (*node.uses, *expansion.uses)}),
                 "before": list(expansion.parents), "after": [child.id for child in view.children(node.id)],
                 "verdicts": [item.verdict for item in view.decisions if item.node == node.id],
-                "roles": defaultdict(int), "contrasts": []}
+                "roles": defaultdict(int), "contrasts": [], "directions": []}
     for view in forest.trees.values():
         if view.tree.subject != CODE:
             continue
@@ -291,9 +291,16 @@ def knowledge_ledger(forest):
                 rows[use.target]["roles"]["planner:" + use.role] += 1
             siblings = [node for node in view.nodes.values() if node.expansion == expansion.id]
             outcomes = {node.id: view.outcome(node.id) for node in siblings}
+            parent = view.outcome(expansion.parents[0])
             for node in siblings:
                 for use in node.uses:
                     rows[use.target]["roles"][use.role] += 1
+                for target in {use.target for use in node.uses}:
+                    outcome = outcomes[node.id]
+                    rows[target]["directions"].append({
+                        "node": node.id, "continued": bool(view.children(node.id)),
+                        "gain": outcome.primary_score / parent.primary_score - 1
+                        if outcome.status == parent.status == "qualified" else None})
             for target in {use.target for node in siblings for use in node.uses}:
                 users = [node.id for node in siblings if target in {use.target for use in node.uses}]
                 others = [node.id for node in siblings if node.id not in users]

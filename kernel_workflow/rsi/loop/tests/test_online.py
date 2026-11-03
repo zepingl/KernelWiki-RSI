@@ -60,7 +60,9 @@ import shutil
 import sys
 prompt = sys.stdin.read()
 if "PHASE=plan_round" in prompt:
-    print(json.dumps({"stop": False, "directions": [{"id": "one", "title": "Fixture", "specialty": "compute", "prompt": "Fixture"}]}))
+    root = re.search(r"^- KERNEL_KNOWLEDGE_DIR: (.*)$", prompt, re.M)[1]
+    print(json.dumps({"stop": False, "directions": [{"id": "one", "title": "Fixture", "specialty": "compute", "prompt": "Fixture",
+                      "kk_refs": [root + "/operators/gemm/backends/triton.md", "operators/softmax/tuning.md"]}]}))
 else:
     parent = re.search(r"^- CANONICAL: (.*)$", prompt, re.M)[1]
     workspace = re.search(r"^- KERNEL_PATH: (.*)$", prompt, re.M)[1]
@@ -78,8 +80,13 @@ else:
     path = tmp_path / "online.yaml"
     path.write_text(yaml.safe_dump(config))
     wiki = tmp_path / "online-wiki"
-    (wiki / "knowledge").mkdir(parents=True)
+    (wiki / "knowledge/operator/gemm/backend").mkdir(parents=True)
     (wiki / "knowledge/policy.yaml").write_text("schema_version: 1\nrule_ids: []\ntop_k: 3\nworkers: 2\n")
+    (wiki / "knowledge/operator/gemm/backend/triton.md").write_text("# GEMM on Triton\n")
+    (wiki / ".gitignore").write_text(".kernelwiki-*/\n")
+    for command in (["init", "-q", "-b", "main"], ["add", "-A"], ["commit", "-q", "-m", "seed"]):
+        subprocess.run(["git", "-C", str(wiki), "-c", "user.name=t", "-c", "user.email=t@t", *command],
+                       check=True, capture_output=True)
     return path, wiki, config
 
 
@@ -218,6 +225,11 @@ def test_failed_candidate_continuation_online_freeze_replay(online_config, tmp_p
     observation = request["parent"]["context"]["branch_observations"][0]
     assert observation["measurement"]["status"] == "failed"
     assert observation["generation_result"]["plan"]["directions"][0]["title"] == "Fixture"
+    # Each pointer is named at generation time through the view it ran on; GEAK-only knowledge stays unresolved.
+    assert [(use["view_path"], use["kernelwiki"]) for use in observation["knowledge_uses"]] == [
+        ("operators/gemm/backends/triton.md", "knowledge/operator/gemm/backend/triton.md"),
+        ("operators/softmax/tuning.md", None)]
+    assert {use["commit"] for use in observation["knowledge_uses"]} == {result["reference_revision"]}
     args = json.loads((tmp_path / "online/generations/node-3/args.json").read_text())
     assert args["rsi_context"]["KK_LANGUAGE"] == "triton"
     assert json.loads(json.dumps(replay(world, Policy(), 3))) == json.loads(json.dumps(result["trace"]))
@@ -254,7 +266,10 @@ def test_working_policy_changes_only_scheduling_not_root_context(online_config, 
     assert baseline["policy_revision"] != candidate["policy_revision"]
     for key in ("reference_revision", "root_source", "root_context", "evaluator_protocol", "evaluator_runtime"):
         assert baseline[key] == candidate[key]
-    assert not (tmp_path / "working-policy/frozen_knowledge/knowledge/policy.yaml").exists()
+    # Agents see KernelWiki's reference knowledge in GEAK's layout, never the policy that schedules them.
+    view = json.loads((tmp_path / "working-policy/frozen_knowledge/manifest.json").read_text())
+    assert view["files"] == {"operators/gemm/backends/triton.md": "knowledge/operator/gemm/backend/triton.md"}
+    assert baseline["reference_revision"] == view["commit"]
 
 
 def test_coordinated_execution_fails_closed_without_placement_and_readonly_inputs(online_config, monkeypatch):

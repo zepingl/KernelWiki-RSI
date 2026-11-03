@@ -3,8 +3,8 @@
 One tree per campaign x kernel: the campaign relaunches the lane from its best source, so a launch
 continues the node whose source it starts on. A plan_round call is an expansion; the engineer calls its
 directions reached are the nodes. Commits are inferred from continuation; integrate and adopt are not
-reconstructed yet and surface as gaps. A knowledge read becomes a use only when its content resolves to a
-KernelWiki node of the given index; any other read is recorded as an unregistered-knowledge gap.
+reconstructed yet and surface as gaps. A knowledge read becomes a use when its path names a live KernelWiki
+document through the shared layout rules (`knowledge_view`); any other read is an unregistered-knowledge gap.
 """
 
 from __future__ import annotations
@@ -17,11 +17,15 @@ from pathlib import Path
 from kernelwiki.knowledge import KernelState, KnowledgeError
 
 from ...evidence import read_json, read_jsonl
+from ...knowledge_view import resolve
 from ...trace.gaps import Gap
 from ...trace.records import CODE, ContextRef, Decide, Expansion, GapRecord, Generation, Measure, Node, Plan, Slot, Tree, Use
 from ...trace.tree import UNREGISTERED
 
 KNOWLEDGE_ROOT = "perf_knowledge/"
+# History read GEAK's own perf_knowledge copy, so a use names the KernelWiki document by the layout rules and
+# its version is the one live at the projected commit; the text read may lag it.
+IDENTITY_BASIS = "inferred: GEAK perf_knowledge path resolved by knowledge_view.RULES; text read was GEAK's copy"
 
 
 def knowledge_id(ref):
@@ -106,7 +110,8 @@ class LaneTrees:
                     continue
                 tree_id = f"{self.campaign}/{kernel}" + (f"/{Path(name).name}" if lineage else "")
                 tree = Tree(tree_id, CODE, baseline.contract, KernelState.from_dict(self.states.get(kernel, {})),
-                            facets={"geak": {"campaign": self.campaign, "kernel": kernel}})
+                            facets={"geak": {"campaign": self.campaign, "kernel": kernel,
+                                             "knowledge_identity": IDENTITY_BASIS}})
                 root = Node(f"{tree.id}/root", tree.id, None, 0, attempt.parent_source, facets={"geak": {"launch": name}})
                 records += [tree, root, Measure(root.id, tree.contract, "director", True, baseline.primary_score,
                                                 baseline.evidence)]
@@ -208,13 +213,14 @@ class LaneTrees:
         return self.reader.ref(path).sha256 if path.is_file() else None
 
     def uses(self, subject, items, role):
-        """Reads whose content is a KernelWiki node become uses; the rest become unregistered-knowledge gaps."""
+        """Reads naming a live KernelWiki document become uses; the rest become unregistered-knowledge gaps."""
         seen, uses, missing = set(), [], []
         for record, revision, evidence in items:
             if (record, revision) in seen:
                 continue
             seen.add((record, revision))
-            target = self.knowledge.get(revision) if revision else None
+            path = resolve(record, self.knowledge)
+            target = self.knowledge.get(path) if path else None
             if target:
                 uses.append(Use(target, role, (evidence,)))
             else:

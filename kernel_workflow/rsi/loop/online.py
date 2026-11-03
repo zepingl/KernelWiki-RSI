@@ -12,7 +12,7 @@ from pathlib import Path
 
 import yaml
 from kernelwiki import KnowledgeClient
-from kernelwiki.knowledge import KernelState, KnowledgeError, digest, read_markdown
+from kernelwiki.knowledge import KernelState, KnowledgeError, digest
 
 from ..discovery import (
     ContextSnapshot,
@@ -32,6 +32,7 @@ from ..evidence import (
     write_jsonl,
 )
 from ..harness import Policy, Rollout
+from .. import knowledge_view
 from ..reverse_engineering.sources.capture import load_online
 from ..runtime import EFFORT, MODEL, REPO_ROOT, WORKFLOW_ROOT, run_process
 from .evaluator import FixedEvaluator
@@ -148,6 +149,7 @@ class OnlineExecutor:
                    "candidate_source": candidate_source["fingerprint"] if candidate_source else None,
                    "retained_source": retained_source["fingerprint"], "retention": retention,
                    "generation_result": result, "measurement": asdict(measurement),
+                   "knowledge_uses": knowledge_view.view_uses(result, self.reference_knowledge),
                    "process": {key: value for key, value in process.items() if key != "evidence"},
                    "stdout": (directory / "runtime/stdout.log").read_text(errors="replace"),
                    "stderr": (directory / "runtime/stderr.log").read_text(errors="replace"),
@@ -219,18 +221,9 @@ def explore(config_path, wiki, output, *, executor_factory=OnlineExecutor, revis
     state = KernelState.from_dict(config["state"])
     wiki_snapshot = KnowledgeClient(wiki).snapshot(revision)
     policy = Policy.from_dict(policy.to_dict(), wiki_snapshot.records) if policy else Policy(wiki_snapshot.policy, wiki_snapshot.records)
-    reference_files = {}
-    for name, payload in wiki_snapshot.files:
-        if not name.startswith("knowledge/") or not name.endswith(".md"):
-            continue
-        if read_markdown(name.removeprefix("knowledge/"), payload.decode()).policy_rule is not None:
-            continue
-        path = destination / "frozen_knowledge" / name
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(payload)
-        reference_files[name] = reference(path).sha256
-    (destination / "frozen_knowledge/knowledge").mkdir(parents=True, exist_ok=True)
-    reference_revision = digest(reference_files)
+    # Agents read the GEAK-layout view of one committed KernelWiki version; its manifest names every file's
+    # KernelWiki document, so each knowledge use is identified when it happens, not matched afterwards.
+    reference_revision = knowledge_view.materialize(wiki, "HEAD", destination / "frozen_knowledge")["commit"]
     persist(destination / "policy.json", policy.to_dict())
     frozen_paths = fixed_inputs(config_path, config)
     knowledge_root = destination / "frozen_knowledge"
@@ -272,7 +265,7 @@ def explore(config_path, wiki, output, *, executor_factory=OnlineExecutor, revis
                                             "execution": environment, "evaluator_protocol": evaluator.protocol,
                                             "evaluator_runtime": evaluator.runtime,
                                             "sources": archived})
-    executor = executor_factory(config, destination, evaluator, destination / "frozen_knowledge/knowledge")
+    executor = executor_factory(config, destination, evaluator, destination / "frozen_knowledge")
     world_id = "online/" + digest(str(destination))[:24]
     root_source = snapshot(root_workspace, config["source_paths"], destination / "root-capture")
     source_ref = persist(destination / "root-capture/source.json", root_source)

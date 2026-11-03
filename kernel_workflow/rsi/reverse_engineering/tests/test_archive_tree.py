@@ -119,16 +119,19 @@ def test_a_launch_starting_from_an_unreconstructed_source_opens_a_new_segment(tm
                                                      "context informed by non-ancestor nodes")
 
 
-def test_reads_resolve_to_kernelwiki_nodes_by_content_and_coverage_counts_the_rest(tmp_path):
+def test_reads_resolve_to_kernelwiki_documents_by_identity_and_coverage_counts_the_rest(tmp_path):
     run, _, revision = lane_run(tmp_path)
-    card = "kernelwiki/knowledge/operator/gemm/tuning.md@abc1234"
+    card = "kernelwiki:knowledge/operator/gemm/tuning.md@abc1234"
     wiki = [Tree("kernelwiki/page", "knowledge:page", "kernelwiki:page"),
             Expansion(card + "#author", "kernelwiki/page", "author", ()),
             Node(card, "kernelwiki/page", card + "#author", 0, revision)]
-    history = read_archive(run, campaign="campaign", tasks={"task-train": "train"}, knowledge={revision: card})
+    history = read_archive(run, campaign="campaign", tasks={"task-train": "train"},
+                           knowledge={"knowledge/operator/gemm/tuning.md": card})
     forest = fold([*wiki, *history.trace])
     first = forest.trees["campaign/train"].nodes["campaign/train/a-plan/0"]
-    assert [(use.target, use.role) for use in first.uses] == [(card, "pointed")]
+    # The plan pointed at the GEAK path and the engineer read another snapshot of it: one document, two uses.
+    assert sorted((use.target, use.role) for use in first.uses) == [(card, "pointed"), (card, "read")]
     assert isinstance(first.uses[0], Use) and first.uses[0].evidence != EVIDENCE
-    # The engineer read a different snapshot and the learned card names no revision: both stay unregistered.
-    assert knowledge_coverage(forest) == {"resolved": 1, "unregistered": 2, "share": 1 / 3}
+    assert forest.trees["campaign/train"].tree.facets["geak"]["knowledge_identity"].startswith("inferred")
+    # The learned card has no KernelWiki document, so it stays unregistered.
+    assert knowledge_coverage(forest) == {"resolved": 2, "unregistered": 1, "share": 2 / 3}

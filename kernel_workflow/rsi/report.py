@@ -11,7 +11,7 @@ from statistics import mean
 from .evidence import read_json
 from .replay_buffer.store import open_buffer
 from .trace.records import OBSERVED_ROLES
-from .trace.tree import fold, gap_worklist, knowledge_coverage, knowledge_ledger
+from .trace.tree import UNREGISTERED, fold, gap_worklist, knowledge_coverage, knowledge_ledger
 
 
 def diagnostics(traces, target=0.01):
@@ -159,7 +159,7 @@ def render_trace_report(pool):
         gains = [row["gain"] for row in value["contrasts"]]
         lines.append(f"| `{key}` | {sum(value['roles'].values())} | {len(gains)} | {mean(gains):+.4f} |")
     lines += ["", "Contrasts compare siblings of one expansion (same parent, context and generation); "
-              "they are associations, not causal attribution.", "",
+              "they are associations, not causal attribution.", "", *knowledge_findings(forest, ledger), "",
               "## Gap worklist", "", "| Blocked by | Nodes |", "| --- | ---: |"]
     lines += [f"| {reason} | {count} |" for reason, count in blocked.most_common()]
     lines += ["", "| Recorded gap | Count |", "| --- | ---: |"]
@@ -167,3 +167,58 @@ def render_trace_report(pool):
     lines += ["", "```json", json.dumps({**metrics, "knowledge_coverage": coverage,
                                          "knowledge": knowledge_metrics(forest)}, indent=2), "```", ""]
     return "\n".join(lines)
+
+
+IMPROVED = 0.005   # a direction "improved" when it beats its parent by more than measurement noise (~0.5%)
+
+
+def knowledge_findings(forest, ledger):
+    """Per KernelWiki document: who used it and what followed; then what KernelWiki lacks or should revisit."""
+    rows, lines = [], ["## Knowledge findings", ""]
+    bases = Counter(view.tree.facets.get("geak", {}).get("knowledge_identity", "unrecorded")
+                    for view in forest.trees.values() if view.tree.subject == "kernel_source")
+    lines += [f"Identity basis of code-tree knowledge uses: {dict(bases)}.", ""]
+    for node_id, row in ledger.items():
+        scored = [item for item in row["directions"] if item["gain"] is not None]
+        if not row["directions"]:
+            continue
+        gains = [item["gain"] for item in row["contrasts"]]
+        rows.append((node_id, len(row["directions"]),
+                     sum(item["gain"] > IMPROVED for item in scored) / len(scored) if scored else None,
+                     sum(item["continued"] for item in row["directions"]) / len(row["directions"]),
+                     len(gains), mean(gains) if gains else None,
+                     min(gains, default=None), max(gains, default=None)))
+    fmt = lambda value, spec: format(value, spec) if value is not None else "–"
+    lines += ["| KernelWiki document | directions | improved | continued | pairs | mean Δ vs siblings | range |",
+              "| --- | ---: | ---: | ---: | ---: | ---: | :-- |"]
+    for node_id, count, improved, continued, pairs, gain, low, high in sorted(rows, key=lambda row: -row[1])[:25]:
+        lines.append(f"| `{node_id.removeprefix('kernelwiki:knowledge/')}` | {count} | {fmt(improved, '.0%')} | "
+                     f"{continued:.0%} | {pairs} | {fmt(gain, '+.2%')} | {fmt(low, '+.1%')} … {fmt(high, '+.1%')} |")
+    knowledge_nodes = [key for key, value in ledger.items() if "#" not in key and "verdicts" in value
+                       and "retired" not in value["verdicts"] and not value["after"]]
+    used = {node_id for node_id, *_ in rows}
+    mixed = [node_id for node_id, _, _, _, pairs, _, low, high in rows
+             if pairs >= 3 and low is not None and low < -0.01 and high > 0.01]
+    unregistered = Counter(item.gap.reasons[1] for view in forest.trees.values() for item in view.gaps
+                           if item.gap.question == UNREGISTERED)
+    distill = []
+    for view in forest.trees.values():
+        if view.tree.subject != "kernel_source":
+            continue
+        for node in view.nodes.values():
+            if node.expansion is None or node.uses or not view.children(node.id):
+                continue
+            parent, outcome = view.outcome(view.expansion(node).parents[0]), view.outcome(node.id)
+            if outcome.status == parent.status == "qualified" and outcome.primary_score / parent.primary_score - 1 > IMPROVED:
+                distill.append((outcome.primary_score / parent.primary_score - 1, node.id,
+                                view.expansion(node).plan.slots[node.slot].specialty if node.slot < len(view.expansion(node).plan.slots) else ""))
+    lines += ["", f"- **Never read** by any direction: {len(set(knowledge_nodes) - used)} of {len(knowledge_nodes)} live "
+                  f"KernelWiki file versions (these runs covered only their own kernels).",
+              f"- **Mixed evidence** (≥3 sibling pairs, some below −1% and some above +1%): {len(mixed)} documents — "
+              + ", ".join(f"`{item.removeprefix('kernelwiki:knowledge/')}`" for item in mixed[:8]),
+              f"- **Read but not in KernelWiki**: {sum(unregistered.values())} reads of {len(unregistered)} items; most read: "
+              + ", ".join(f"`{ref}` ({count})" for ref, count in unregistered.most_common(6)),
+              f"- **Trunk steps that improved >{IMPROVED:.1%} without any knowledge** (distillation candidates): "
+              f"{len(distill)}; largest:", ""]
+    lines += [f"  - {gain:+.1%} `{node_id}` ({specialty})" for gain, node_id, specialty in sorted(distill, reverse=True)[:10]]
+    return lines

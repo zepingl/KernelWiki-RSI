@@ -29,7 +29,8 @@ FILE_KINDS = (("evidence_set", r"corpus/evidence/[^/]+\.yaml"), ("decision_file"
               ("operator_page", r"knowledge/operator/[^/]+/[^/]+\.md"),
               # The KnowledgePolicy and the rule cards KnowledgeClient.publish writes, before ordinary pages.
               ("policy", r"knowledge/policy\.yaml"), ("policy_rule", r"knowledge/general/rsi/[^/]+\.md"),
-              ("general_page", r"knowledge/general/.+\.md"),
+              # General pages include their data files: expert_recipes/index.yaml is what agents read most.
+              ("general_page", r"knowledge/general/.+\.(md|yaml)"),
               ("bundle", r"kernels/.+/metadata\.yaml"))
 PIN = re.compile(r"github\.com/([\w.-]+/[\w.-]+)/(?:tree|blob|commit)/([0-9a-f]{12,40})")
 EVIDENCE_ID = re.compile(r"^\s*-?\s*\w+_id:\s*\"?((?:src|cfg|sel)_[0-9a-f]+)", re.M)
@@ -202,9 +203,14 @@ def resolved_commit(repo, rev="HEAD"):
 
 
 def knowledge_index(records):
-    """Content SHA-256 -> latest KernelWiki file node with that content; GEAK reads whole files, not cards."""
+    """KernelWiki path -> the node of its live version at the projected commit; retired files drop out.
+    GEAK reads whole files, so card-level nodes ('#' in the id) are never read targets."""
     index = {}
     for record in records:
-        if isinstance(record, Node) and record.id.startswith("kernelwiki:") and "#" not in record.id and record.state:
-            index[record.state] = record.id
+        if isinstance(record, Node) and record.id.startswith("kernelwiki:") and "#" not in record.id:
+            index[record.id.removeprefix("kernelwiki:").rsplit("@", 1)[0]] = record.id
+        elif isinstance(record, Decide) and record.verdict == "retired" and record.node and "#" not in record.node:
+            path = record.node.removeprefix("kernelwiki:").rsplit("@", 1)[0]
+            if index.get(path) == record.node:
+                del index[path]
     return index

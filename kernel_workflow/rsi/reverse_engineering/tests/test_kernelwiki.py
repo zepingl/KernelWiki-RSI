@@ -79,5 +79,7 @@ def test_history_becomes_knowledge_trees_with_sources_gaps_and_retirements(tmp_p
     assert learned.decisions == [Decide("kernelwiki/learned_card", lesson, "retired", f"deleted in {third}")]
 
     index = knowledge_index(records)
-    assert index[pages.nodes[v2].state] == v2 and card not in index.values()
+    # One live version per document path; card-level nodes are not read targets; deleted files drop out.
+    assert index[v2.removeprefix("kernelwiki:").rsplit("@", 1)[0]] == v2 and card not in index.values()
+    assert LEARNED not in index
     assert knowledge_ledger(forest)[v1]["after"] == [v2]
