@@ -650,7 +650,7 @@ class ArchiveHistory:
     trace: tuple = ()
 
 
-def read_archive(run, *, campaign, tasks, excluded_tasks=(), states=None, knowledge=None):
+def read_archive(run, *, campaign, tasks, excluded_tasks=(), states=None, knowledge=None, view=None):
     attempts, worlds, excluded = [], [], []
     reader = AuditReader(run)
     groups = defaultdict(list)
@@ -704,6 +704,6 @@ def read_archive(run, *, campaign, tasks, excluded_tasks=(), states=None, knowle
                                           if value is not None}})
         worlds.append(reconstruct(world_id, kernel, campaign, state, dispatch.generation,
                                   root, [attempt for attempt, _ in rows]))
-    trace = lane_trees(reader, attempts, campaign=campaign, tasks=tasks, states=states, knowledge=knowledge)
+    trace = lane_trees(reader, attempts, campaign=campaign, tasks=tasks, states=states, knowledge=knowledge, view=view)
     return ArchiveHistory(tuple(attempts), tuple(worlds), tuple(reader._references.values()), tuple(excluded),
                           tuple(trace))

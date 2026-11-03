@@ -227,3 +227,39 @@ but agents look for `backends/gluon.md`, which neither side has, so this card is
 - Online runs observe what the plan points to (`kk_refs`), not every file an engineer opens. That needs a read
   hook, as campaign audits already have.
 - Online runs still emit v1 worlds; converting them to schema-4 trees is a separate step.
+
+---
+
+## 7 · Corrections, new data paths, first knowledge migration (2026-11-03)
+
+**Corrections**
+
+| | Before (§6) | After |
+| :-- | :-- | :-- |
+| Learned cards "never written back" | 133 reads | Wrong: 123 of GEAK's 135 cards were imported as `kernel-<slug>`. Only **12** are missing (quantize_cast and memory_movement have no KernelWiki operator). |
+| History reads resolved | 92% | **97% (2,403 / 2,475)**. The remaining 72 are 50 directory listings, 10 GEAK-only operator pages and 12 reads of the missing cards. |
+| gluon page | "missing" | It exists as `<lang>_aiter.md`. The view now also shows it at the conventional `backends/<lang>.md` (40 such aliases), and the manifest records each alias. |
+
+```mermaid
+flowchart LR
+  subgraph ONLINE["RSI online run (data, step 1)"]
+    V["KernelWiki view @ commit"] --> A["agents (claude via agent_events)"]
+    A -- "stream-json tool events" --> R["read_uses: Read / Grep / Bash paths → manifest"]
+    A -- "plan kk_refs" --> P["view_uses → manifest"]
+    R & P --> T["online-trace.jsonl (schema 4)"] --> F["freeze: one projection, new tree_cohorts"]
+  end
+  subgraph CHANGE["KernelWiki change (step 2)"]
+    G["GEAK 02bfbb0b learned cards"] --> PR["propose-ingest: 12 pages, rendered byte-exact"]
+    PR --> RQ["request → sign → publish → rollback / restore"]
+  end
+  subgraph LANE["Production lane (step 3, opt-in only)"]
+    KV["knowledge-view"] --> LA["perf_knowledge_dir · learned_kb_dir · learned_inbox_dir · run_id"]
+  end
+```
+
+- **Step 1:** an online run now records both what plans pointed to and which knowledge files agents actually opened,
+  each as `document @ commit`, and writes a schema-4 tree that `freeze` merges into the buffer.
+- **Step 2:** `migration-02` proposes 12 learned cards. They are built from the pinned GEAK blob plus KernelWiki's
+  import header and footer, with no other change. It **awaits signature**.
+- **Step 3:** the production lane can read KernelWiki through 4 opt-in args. With the args unset, all 11 prompts
+  of a stubbed run are byte-identical to before. Nothing in production has been switched.

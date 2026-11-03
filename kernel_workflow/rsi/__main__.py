@@ -111,6 +111,12 @@ def main(argv=None):
     publisher = commands.add_parser("release", help="reproduce real final gates, then publish with KernelWiki compare-and-swap")
     publisher.add_argument("--cycle", required=True)
     publisher.add_argument("--wiki", required=True)
+    viewer = commands.add_parser("knowledge-view", help="opt-in: show a pinned KernelWiki commit in GEAK's knowledge "
+                                                        "layout and print the lane args that read it")
+    viewer.add_argument("--wiki", required=True)
+    viewer.add_argument("--commit", default="HEAD")
+    viewer.add_argument("--output", required=True)
+    viewer.add_argument("--run-id")
     migration = commands.add_parser("migrate", help="replay-evidenced KernelWiki policy migration with human approval")
     steps = migration.add_subparsers(dest="step", required=True)
     proposed = steps.add_parser("propose-ingest", help="propose GEAK learned cards KernelWiki does not hold")
@@ -230,6 +236,9 @@ def main(argv=None):
             from .loop.outer import cycle
             result = cycle(args.config, args.wiki, args.output, resume=args.resume, progress=progress)
             result = {key: value for key, value in result.items() if key != "artifacts"}
+        elif args.command == "knowledge-view":
+            from .knowledge_view import lane_view
+            result = lane_view(args.wiki, args.commit, args.output, run_id=args.run_id)
         elif args.command == "migrate":
             from .loop import migration
             from .loop import knowledge_change

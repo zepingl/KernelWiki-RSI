@@ -135,3 +135,19 @@ def test_reads_resolve_to_kernelwiki_documents_by_identity_and_coverage_counts_t
     assert forest.trees["campaign/train"].tree.facets["geak"]["knowledge_identity"].startswith("inferred")
     # The learned card has no KernelWiki document, so it stays unregistered.
     assert knowledge_coverage(forest) == {"resolved": 2, "unregistered": 1, "share": 2 / 3}
+
+
+def test_a_campaign_that_read_a_kernelwiki_view_names_documents_through_its_manifest(tmp_path):
+    run, _, revision = lane_run(tmp_path)
+    card = "kernelwiki:knowledge/operator/gemm/backend/gluon_aiter.md@abc1234"
+    wiki = [Tree("kernelwiki/page", "knowledge:page", "kernelwiki:page"),
+            Expansion(card + "#author", "kernelwiki/page", "author", ()),
+            Node(card, "kernelwiki/page", card + "#author", 0, revision)]
+    # The lane asked for operators/gemm/tuning.md; in this view that path shows the gluon AITER page.
+    view = {"commit": "c" * 40, "files": {"operators/gemm/tuning.md": "knowledge/operator/gemm/backend/gluon_aiter.md"}}
+    history = read_archive(run, campaign="campaign", tasks={"task-train": "train"},
+                           knowledge={"knowledge/operator/gemm/backend/gluon_aiter.md": card}, view=view)
+    forest = fold([*wiki, *history.trace])
+    tree = forest.trees["campaign/train"]
+    assert {use.target for use in tree.nodes["campaign/train/a-plan/0"].uses} == {card}
+    assert tree.tree.facets["geak"]["knowledge_identity"] == f"observed: the lane read the KernelWiki view manifest @ {'c' * 40}"

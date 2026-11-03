@@ -2,7 +2,7 @@ import json
 import subprocess
 
 import pytest
-from kernel_workflow.rsi.knowledge_view import materialize, resolve, to_kernelwiki, to_view
+from kernel_workflow.rsi.knowledge_view import lane_view, materialize, resolve, to_kernelwiki, to_view
 from kernelwiki.knowledge import KnowledgeError
 
 
@@ -91,3 +91,27 @@ def test_two_documents_on_one_view_path_are_refused(tmp_path):
     git(repo, "commit", "-q", "-m", "v1")
     with pytest.raises(KnowledgeError, match="one view path"):
         materialize(repo, "HEAD", tmp_path / "view")
+
+
+def test_lane_view_lays_out_learned_cards_and_prints_opt_in_lane_args(tmp_path):
+    repo = tmp_path / "wiki"
+    files = {"knowledge/operator/gemm/learned_knowledge/kernel-fast.md": "---\nname: fast.md\n---\n# fast\n",
+             "knowledge/operator/gemm/learned_knowledge/README.md": "# about cards\n",
+             "knowledge/general/learned_knowledge/e2e-system.md": "---\nname: system.md\n---\n# e2e\n",
+             "knowledge/operator/gemm/backend/triton.md": "triton"}
+    for name, text in files.items():
+        (repo / name).parent.mkdir(parents=True, exist_ok=True)
+        (repo / name).write_text(text)
+    git(repo, "init", "-q", "-b", "main")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "v1")
+    result = lane_view(repo, "HEAD", tmp_path / "out", run_id="run-1")
+    manifest = json.loads((tmp_path / "out/view/manifest.json").read_text())
+    # Kernel cards appear under GEAK's learned layout; e2e cards and READMEs do not.
+    assert {view for view in manifest["files"] if view.startswith("learned/")} == {"learned/fast.md"}
+    assert manifest["generated"] == {"learned/INDEX.md": "kernel_workflow/scripts/kb.py index"}
+    assert "fast.md" in (tmp_path / "out/view/learned/INDEX.md").read_text()
+    assert result["lane_args"] == {"perf_knowledge_dir": str(tmp_path / "out/view"),
+                                   "learned_kb_dir": str(tmp_path / "out/view/learned"),
+                                   "learned_inbox_dir": str(tmp_path / "out/learned-inbox"), "run_id": "run-1"}
+    assert not any((tmp_path / "out/learned-inbox").iterdir())

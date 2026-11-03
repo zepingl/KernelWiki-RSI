@@ -200,7 +200,20 @@ const DRA_MAX_BLINDSPOTS = (() => {
 //   update_experience = on (default) | off | false | none
 // The bake-off dispatcher passes `off` and curates once centrally instead (N parallel lanes would
 // file N near-duplicate cards for one op).
-const LEARNED_DIR = `${WORKFLOW_DIR}/knowledge/learned`;
+// KERNELWIKI VIEW (opt-in, all three default empty). A materialized KernelWiki view
+// (`python3 -m kernel_workflow.rsi knowledge-view`) supplies perf_knowledge_dir and LEARNED_KB_DIR; a run then
+// reads learned cards from the view, files its proposals into LEARNED_INBOX_DIR (KernelWiki ingests them
+// through a signed migration), and names itself with RUN_ID so a card can say which run it came from.
+// Every prompt key below is added only when its arg is set: a default run's prompts are byte-identical.
+const LEARNED_KB_DIR = String(A.learned_kb_dir || '').replace(/\/+$/, '');
+const LEARNED_INBOX_DIR = String(A.learned_inbox_dir || '').replace(/\/+$/, '');
+const RUN_ID = String(A.run_id || '');
+const LEARNED_SOURCE = LEARNED_KB_DIR ? {
+  LEARNED_KB_DIR,
+  LEARNED_KB_SOURCE: `For this run the learned cards are a KernelWiki view: wherever your role says ` +
+    `SKILL_DIR/knowledge/learned/, read ${LEARNED_KB_DIR}/ instead (INDEX.md and the cards it lists).`,
+} : {};
+const LEARNED_DIR = LEARNED_INBOX_DIR || `${WORKFLOW_DIR}/knowledge/learned`;
 // How much of ONE round the learned KB may steer. Measured, not guessed: an arm whose planner was
 // handed at most 3 matched cards and could KB-seed at most one direction reached 4.45x geomean on 16
 // kernels; the same 16 under a planner that reads the whole 84-line index and picks freely reached
@@ -838,8 +851,11 @@ async function optimizeDirections(directions, context) {
       // deep_explore reads its own role (broad authority + own iteration loop); specialists read engineer.md.
       const readLine = isDeep
         ? `Then Read ${WORKFLOW_DIR}/roles/deep_engineer.md and the knowledge files under ${WORKFLOW_DIR}/knowledge/ ` +
-          (USE_LEARNED_READ ? '' : `— EXCLUDING knowledge/learned/, which is off for this run: do not open ` +
-            `INDEX.md or any card there. `) +
+          (USE_LEARNED_READ
+            ? (LEARNED_KB_DIR ? `— with knowledge/learned/ replaced by the KernelWiki view ${LEARNED_KB_DIR}/ ` +
+              `for this run ` : '')
+            : `— EXCLUDING knowledge/learned/, which is off for this run: do not open ` +
+              `INDEX.md or any card there. `) +
           `(you have broad authority — combine algorithm + memory + compute + host_runtime levers in one ` +
           `coherent rewrite), and follow them. You MAY edit ANY modifiable source (kernel + Python wrapper ` +
           `+ C++ binding), not just focus_files. Run your OWN multi-iteration measure→(self-)profile→rewrite ` +
@@ -1082,6 +1098,7 @@ if (MODE === 'author') {
       // The author engineer reads the learned index too, so the switch has to reach it. It is the
       // second reader; a switch that covers one of two readers is not a switch.
       LEARNED_KB: USE_LEARNED_READ ? 'on' : 'off',
+      ...(USE_LEARNED_READ ? LEARNED_SOURCE : {}),
     }),
     { phase: 'Author', label: `author:${TARGET_LANGUAGE}`, schema: AUTHOR_SCHEMA });
   if (!authored || !authored.authored || !says(authored.correctness, 'pass')) {
@@ -1555,6 +1572,7 @@ while (!skipLoop && dispatched < BUDGET && noImprove < MAX_NO_IMPROVE) {
     // that USES it, i.e. the arm it exists to produce (a clean KB-off control) was never clean. The
     // role now gates on this value, so it has to be present whichever way it points.
     LEARNED_KB: USE_LEARNED_READ ? 'on' : 'off',
+    ...(USE_LEARNED_READ ? LEARNED_SOURCE : {}),
     ...(USE_LEARNED_READ ? { LEARNED_KB_BUDGET:
       `At most ${KB_DIR_CAP} of this round's directions may draw on learned cards, and you must cite ` +
       `the cards you used in that direction's \`learned_refs\`. ` +
@@ -1923,7 +1941,7 @@ if (!kbGate && UPDATE_EXPERIENCE_ON && kbAccepted && Number.isFinite(finalPrimar
       roleAgent('update_experience', 'Validate',
         'Curate one distilled learned card from this lane\'s verified win (ADD-only, measured evidence, ' +
         'ratios not wall-clock; record the pitfalls hit; total-then-per-direction for a stacked win).', {
-          SCOPE: 'lane', LEARNED_DIR, SKILL_DIR: WORKFLOW_DIR, EVAL_DIR,
+          SCOPE: 'lane', LEARNED_DIR, SKILL_DIR: WORKFLOW_DIR, EVAL_DIR, ...(RUN_ID ? { RUN_ID } : {}),
           PERF_KNOWLEDGE_DIR: KERNEL_KNOWLEDGE_DIR,
           CURATION_ISOLATE: RDNA4_ISOLATE ? 'true' : 'false',
           REQUIRED_PLATFORMS: RDNA4_ISOLATE ? ['gfx1201'] : [],
@@ -1973,7 +1991,7 @@ if (citations.length && !HELD_OUT) {
       `Run EXACTLY this command and nothing else. Do NOT edit any file.
 \`\`\`bash
 cat <<'CITEJSON' | python3 ${WORKFLOW_DIR}/scripts/kb.py --kb-dir ${LEARNED_DIR} cite \\
---run-id ${JSON.stringify(KERNEL_NAME)} \\
+--run-id ${JSON.stringify(RUN_ID || KERNEL_NAME)} \\
 --kernel ${JSON.stringify(KERNEL_NAME)} --citations -
 ${JSON.stringify(citations)}
 CITEJSON

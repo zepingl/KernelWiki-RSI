@@ -56,9 +56,11 @@ class Lineage:
 
 
 class LaneTrees:
-    def __init__(self, reader, attempts, *, campaign, tasks, states=None, knowledge=None):
+    def __init__(self, reader, attempts, *, campaign, tasks, states=None, knowledge=None, view=None):
         self.reader, self.campaign, self.tasks, self.states = reader, campaign, tasks, states or {}
         self.knowledge = knowledge or {}
+        # A campaign that ran against a KernelWiki view names each file it read through the view's manifest.
+        self.view = view
         self.attempts = {attempt.id: attempt for attempt in attempts}
         self.parents_of = {}
         lineage = reader.run / "index/knowledge_lineage.jsonl"
@@ -111,7 +113,7 @@ class LaneTrees:
                 tree_id = f"{self.campaign}/{kernel}" + (f"/{Path(name).name}" if lineage else "")
                 tree = Tree(tree_id, CODE, baseline.contract, KernelState.from_dict(self.states.get(kernel, {})),
                             facets={"geak": {"campaign": self.campaign, "kernel": kernel,
-                                             "knowledge_identity": IDENTITY_BASIS}})
+                                             "knowledge_identity": self.identity_basis()}})
                 root = Node(f"{tree.id}/root", tree.id, None, 0, attempt.parent_source, facets={"geak": {"launch": name}})
                 records += [tree, root, Measure(root.id, tree.contract, "director", True, baseline.primary_score,
                                                 baseline.evidence)]
@@ -212,6 +214,11 @@ class LaneTrees:
         path = self.reader.run / "snapshots/GEAK" / KNOWLEDGE_ROOT / knowledge_id(ref)
         return self.reader.ref(path).sha256 if path.is_file() else None
 
+    def identity_basis(self):
+        if self.view:
+            return f"observed: the lane read the KernelWiki view manifest @ {self.view['commit']}"
+        return IDENTITY_BASIS
+
     def uses(self, subject, items, role):
         """Reads naming a live KernelWiki document become uses; the rest become unregistered-knowledge gaps."""
         seen, uses, missing = set(), [], []
@@ -219,7 +226,8 @@ class LaneTrees:
             if (record, revision) in seen:
                 continue
             seen.add((record, revision))
-            path = resolve(record, self.knowledge)
+            path = (self.view["files"].get(record) or self.view["files"].get("learned/" + record)) if self.view \
+                else resolve(record, self.knowledge)
             target = self.knowledge.get(path) if path else None
             if target:
                 uses.append(Use(target, role, (evidence,)))
@@ -251,5 +259,6 @@ class LaneTrees:
         return measures
 
 
-def lane_trees(reader, attempts, *, campaign, tasks, states=None, knowledge=None):
-    return LaneTrees(reader, attempts, campaign=campaign, tasks=tasks, states=states, knowledge=knowledge).records()
+def lane_trees(reader, attempts, *, campaign, tasks, states=None, knowledge=None, view=None):
+    return LaneTrees(reader, attempts, campaign=campaign, tasks=tasks, states=states, knowledge=knowledge,
+                     view=view).records()

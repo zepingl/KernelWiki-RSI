@@ -12,7 +12,9 @@ import io
 import json
 import re
 import subprocess
+import sys
 import tarfile
+import time
 from pathlib import Path
 
 from kernelwiki.knowledge import KnowledgeError
@@ -39,6 +41,8 @@ UNMAPPED = "kernelwiki/"            # KernelWiki files no rule covers stay reach
 POLICY = ("knowledge/policy.yaml", "knowledge/general/rsi/")   # the KnowledgePolicy is not reference knowledge
 LEARNED = "/learned_knowledge/"
 IMPORT_PREFIXES = ("kernel-", "e2e-", "")   # KernelWiki imported GEAK cards as kernel-<slug> / e2e-<slug>
+LEARNED_CARD = re.compile(r"knowledge/.+/learned_knowledge/(?:kernel-)?(?P<slug>(?!e2e-|README\.md$|INDEX\.md$|_)[^/]+\.md)")
+KB_SCRIPT = Path(__file__).resolve().parents[1] / "scripts/kb.py"
 ALIASED = re.compile(r"knowledge/operator/(?P<op>[^/]+)/backend/(?P<backend>[^/]+)_aiter\.md")
 
 
@@ -81,9 +85,11 @@ def resolve(ref, documents):
     return path if path in documents else None
 
 
-def materialize(repo, commit, destination):
+def materialize(repo, commit, destination, *, learned=False):
     """Write the GEAK-layout view of KernelWiki `knowledge/` at `commit`, plus manifest.json naming every file's
-    KernelWiki path. Reads committed git objects only; the repository is not touched."""
+    KernelWiki path. Reads committed git objects only; the repository is not touched. With `learned`, kernel
+    learned cards are also laid out as GEAK's learned KB (`learned/<slug>.md`, KernelWiki's kernel- prefix dropped;
+    e2e cards stay with e2e), and GEAK's own kb.py generates its INDEX.md, which the manifest lists as generated."""
     repo, destination = Path(repo), Path(destination)
     found = subprocess.run(["git", "-C", str(repo), "rev-parse", "--verify", commit + "^{commit}"],
                            capture_output=True, text=True)
@@ -106,13 +112,25 @@ def materialize(repo, commit, destination):
         found = ALIASED.fullmatch(path)
         if found and f"knowledge/operator/{found['op']}/backend/{found['backend']}.md" not in documents:
             aliases[f"operators/{found['op']}/backends/{found['backend']}.md"] = path
-    files = {**shown, **aliases}
+    cards = {}
+    for path in documents if learned else ():
+        if (found := LEARNED_CARD.fullmatch(path)) is not None:
+            if "learned/" + found["slug"] in cards:
+                raise KnowledgeError(f"two KernelWiki learned cards share the GEAK slug {found['slug']}")
+            cards["learned/" + found["slug"]] = path
+    files = {**shown, **aliases, **cards}
     for view, path in files.items():
         target = destination / view
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(documents[path])
+    generated = {}
+    if learned:
+        (destination / "learned").mkdir(exist_ok=True)
+        subprocess.run([sys.executable, str(KB_SCRIPT), "--kb-dir", str(destination / "learned"), "index"],
+                       check=True, capture_output=True, text=True)
+        generated["learned/INDEX.md"] = "kernel_workflow/scripts/kb.py index"
     manifest = {"schema_version": 1, "repo": str(repo.resolve()), "commit": commit, "files": dict(sorted(files.items())),
-                "aliases": dict(sorted(aliases.items()))}
+                "aliases": dict(sorted(aliases.items())), "generated": generated}
     (destination / "manifest.json").write_text(json.dumps(manifest, indent=1) + "\n")
     return manifest
 
@@ -183,3 +201,23 @@ def read_uses(events_dir, view_root):
                              "kernelwiki": manifest["files"].get(view), "commit": manifest["commit"],
                              "events": str(log), "line": number})
     return uses
+
+
+def lane_view(wiki, commit, output, *, run_id=None):
+    """Everything a production lane needs to read KernelWiki instead of GEAK's copy, without changing a default:
+    the view (with GEAK's learned-KB layout), an empty inbox for the run's proposals, and the lane args."""
+    output = Path(output)
+    manifest = materialize(wiki, commit, output / "view", learned=True)
+    (output / "learned-inbox").mkdir()
+    run_id = run_id or f"kernelwiki-{manifest['commit'][:12]}-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}"
+    result = {"commit": manifest["commit"], "manifest": str(output / "view/manifest.json"),
+              "lane_args": {"perf_knowledge_dir": str(output / "view"), "learned_kb_dir": str(output / "view/learned"),
+                            "learned_inbox_dir": str(output / "learned-inbox"), "run_id": run_id},
+              "not_switched": ["kernel_workflow/knowledge/amd_rdna4.md, amd_ryzen.md, amd_instinct.md name "
+                               "perf_knowledge/expert_skills paths directly",
+                               "e2e_workflow.js:2208 and e2e roles name GEAK/perf_knowledge paths directly",
+                               "e2e_workflow.js:3224 and :6157 call the lane without perf_knowledge_dir",
+                               "run_e2e.py forwards only perf_knowledge_dir, warm_start, use_learned_kb from a handoff",
+                               "warm-start KB (kb_artifacts / KB store) is a separate store, not KernelWiki"]}
+    (output / "lane-args.json").write_text(json.dumps(result, indent=1) + "\n")
+    return result

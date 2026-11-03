@@ -142,9 +142,17 @@ def ingest(config_path, output, *, progress=None):
         records = kernelwiki_trees(wiki["repo"], wiki["commit"])
         knowledge = knowledge_index(records)
     for campaign, campaign_data in campaigns.items():
+        view, campaign_knowledge = None, knowledge
+        if campaign_data.get("knowledge_view"):
+            # The campaign read a KernelWiki view: its uses name the versions live at the view's commit.
+            view = read_json(campaign_data["knowledge_view"])
+            if not wiki or subprocess.run(["git", "-C", wiki["repo"], "merge-base", "--is-ancestor", view["commit"],
+                                           wiki["commit"]], capture_output=True).returncode:
+                raise KnowledgeError(f"{campaign} read a KernelWiki commit the configured projection does not contain")
+            campaign_knowledge = knowledge_index(kernelwiki_trees(wiki["repo"], view["commit"]))
         history = read_archive(campaign_data["path"], campaign=campaign, tasks=tasks,
                                excluded_tasks=config.get("excluded_tasks", ()), states=config.get("states", {}),
-                               knowledge=knowledge)
+                               knowledge=campaign_knowledge, view=view)
         attempts.extend(history.attempts)
         worlds.extend(history.worlds)
         evidence.extend(asdict(item) for item in history.evidence)
