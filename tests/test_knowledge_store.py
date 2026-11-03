@@ -171,13 +171,12 @@ def test_verbatim_pages_are_added_published_and_rolled_back_without_touching_pol
 
 
 @pytest.mark.parametrize("name, payload, reason", [
-    ("knowledge/general/reference.md", b"# replaced\n", "new knowledge"),
-    ("knowledge/general/notes.txt", b"text\n", "new knowledge"),
-    ("corpus/outside.md", b"# outside\n", "new knowledge"),
+    ("knowledge/general/notes.txt", b"text\n", "knowledge/\\*.md"),
+    ("corpus/outside.md", b"# outside\n", "knowledge/\\*.md"),
     ("knowledge/general/rule.md", b"---\nkernelwiki:\n  id: rule\n  title: Rule\n  policy_rule:\n    when: []\n"
                                   b"    effect: prefer\n---\nbody\n", "policy rule"),
 ])
-def test_verbatim_pages_cannot_replace_pages_leave_knowledge_or_carry_rules(client, tmp_path, name, payload, reason):
+def test_verbatim_pages_cannot_leave_knowledge_or_carry_rules(client, tmp_path, name, payload, reason):
     original = client.snapshot()
     evidence = tmp_path / "provenance.json"
     evidence.write_text("{}\n")
@@ -186,3 +185,18 @@ def test_verbatim_pages_cannot_replace_pages_leave_knowledge_or_carry_rules(clie
     with pytest.raises(KnowledgeError, match=reason):
         client.publish(update, expected_revision=original.revision)
     assert client.snapshot().revision == original.revision
+
+
+def test_a_reference_page_can_be_replaced_verbatim_and_rolled_back(client, tmp_path):
+    original = client.snapshot()
+    evidence = tmp_path / "evidence.json"
+    evidence.write_text("{}\n")
+    ref = EvidenceRef(str(evidence), hashlib.sha256(evidence.read_bytes()).hexdigest())
+    page = "knowledge/general/reference.md"
+    before = (client.root / page).read_bytes()
+    amended = before + b"\n<!-- field evidence -->\nMeasured in 12 runs.\n"
+    update = KnowledgeUpdate(original.policy, (), {"status": "evidence_update"}, (ref,), ((page, amended),))
+    revision = client.publish(update, expected_revision=original.revision)
+    assert (client.root / page).read_bytes() == amended
+    client.rollback(original.revision, expected_revision=revision)
+    assert (client.root / page).read_bytes() == before
