@@ -74,8 +74,9 @@ def test_implementation_imports_have_no_architectural_cycle():
 
 
 def test_agent_schemas_are_owned_by_inner_loop_and_method_analyst():
-    assert set(ROLES) == {"preflight", "developer", "reviewer"}
-    assert ROLES["developer"].instructions.parent.resolve() == ROOT / "loop/roles"
+    assert set(ROLES) == {"preflight", "developer", "reviewer", "curator"}
+    assert {ROLES[name].instructions.parent.resolve() for name in ("developer", "reviewer", "curator")} == {
+        ROOT / "loop/roles"}
     assert ROLE.instructions.resolve() == ROOT / "reverse_engineering/roles/analyst.md"
     assert ROLE.schema["properties"]["method_status"]["enum"][-1] == "unknown"
     assert RuntimeAgent.__module__ == "kernel_workflow.rsi.runtime"
