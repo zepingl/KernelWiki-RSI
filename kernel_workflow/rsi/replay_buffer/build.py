@@ -1,5 +1,6 @@
 """Construct and commit one immutable buffer from verified histories and reports."""
 
+import subprocess
 from collections import Counter
 from dataclasses import asdict
 from pathlib import Path
@@ -10,6 +11,7 @@ from kernelwiki.knowledge import EvidenceRef, KnowledgeError
 from ..evidence import (
     evidence_refs,
     read_json,
+    read_jsonl,
     reference,
     verify,
     verify_artifacts,
@@ -25,6 +27,36 @@ from ..trace.records import to_wire
 from ..trace.tree import fold, knowledge_coverage
 from .cohorts import cohorts, split_worlds
 from .store import open_buffer
+
+
+def merged_trace(base_trace, online, wiki):
+    """Base code trees plus each online run's code tree over one KernelWiki projection: the newest commit any part
+    read. Every other commit must precede it, so knowledge node ids already referenced stay valid."""
+    runs = [Path(directory) for directory in online if (Path(directory) / "online-trace.jsonl").exists()]
+    if not runs:
+        return list(base_trace), wiki
+    repo = (wiki or {}).get("repo") or read_json(runs[0] / "frozen_knowledge/manifest.json")["repo"]
+    commits = {read_json(run / "result.json")["reference_revision"] for run in runs}
+    commits |= {wiki["commit"]} if wiki else set()
+    ancestor = lambda older, newer: subprocess.run(["git", "-C", repo, "merge-base", "--is-ancestor", older, newer],
+                                                   capture_output=True).returncode == 0
+    newest = [commit for commit in commits if all(ancestor(other, commit) for other in commits)]
+    if not newest:
+        raise KnowledgeError("runs read KernelWiki commits that are not on one line of history")
+    knowledge = [to_wire(record) for record in kernelwiki_trees(repo, newest[0])]
+    online_records = [value for run in runs for value in read_jsonl(run / "online-trace.jsonl")]
+    return [*knowledge, *code_records(base_trace), *online_records], {"repo": repo, "commit": newest[0]}
+
+
+def code_records(records):
+    """The code-tree part of a trace; knowledge and external trees are re-projected, never carried over."""
+    trees = {value["id"] for value in records if value["kind"] == "tree" and value["subject"] == "kernel_source"}
+    owner = {value["id"]: value["tree"] for value in records if value["kind"] in {"expansion", "node"}}
+    tree_of = {"tree": lambda value: value["id"], "expansion": lambda value: value["tree"],
+               "node": lambda value: value["tree"], "decide": lambda value: value["tree"],
+               "measure": lambda value: owner.get(value["node"]),
+               "gap": lambda value: value["subject"] if value["subject"] in trees else owner.get(value["subject"])}
+    return [value for value in records if tree_of[value["kind"]](value) in trees]
 
 
 def freeze(pool, online, output, *, investigations=()):
@@ -74,11 +106,14 @@ def freeze(pool, online, output, *, investigations=()):
     write_jsonl(destination / "excluded.jsonl", excluded)
     artifacts = ["attempts.jsonl", "worlds.jsonl", "reverse.jsonl", "excluded.jsonl"]
     tree_fields = {}
-    if base.trace:
-        write_jsonl(destination / "trace.jsonl", base.trace)
+    records, wiki = merged_trace(base.trace, online, manifest.get("kernelwiki"))
+    if records:
+        write_jsonl(destination / "trace.jsonl", records)
         artifacts.append("trace.jsonl")
-        tree_fields = {"trees": len(base.trees),
-                       "tree_cohorts": cohorts(base.trees, manifest["budgets"], traces="trace.jsonl")}
+        forest = fold(records)
+        trees = forest.code_trees()
+        tree_fields = {"trees": len(trees), "kernelwiki": wiki, "knowledge_coverage": knowledge_coverage(forest),
+                       "tree_cohorts": cohorts(trees, manifest["budgets"], traces="trace.jsonl")}
     result = {**manifest, **tree_fields, "schema_version": 2, "status": "frozen", "attempts": len(attempts), "worlds": len(worlds),
               "cohorts": cohorts(worlds, manifest["budgets"]), "reverse_traces": len(traces),
               "replay_ready": sum(item.disposition == "replay_ready" for item in attempts),

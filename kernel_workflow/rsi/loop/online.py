@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
@@ -34,8 +35,14 @@ from ..evidence import (
 from ..harness import Policy, Rollout
 from .. import knowledge_view
 from ..reverse_engineering.sources.capture import load_online
+from ..reverse_engineering.sources.kernelwiki import kernelwiki_trees, knowledge_index
+from ..reverse_engineering.sources.online_tree import Step, online_records
+from ..trace.records import Generation, to_wire
+from ..trace.tree import fold
 from ..runtime import EFFORT, MODEL, REPO_ROOT, WORKFLOW_ROOT, run_process
 from .evaluator import FixedEvaluator
+
+AGENT_EVENTS = Path(__file__).resolve().parents[1] / "agent_events.py"
 
 
 class OnlineExecutor:
@@ -76,8 +83,10 @@ class OnlineExecutor:
         runtime = self.config["runtime"]
         registry = {"default_profile": "rsi", "profiles": {"rsi": {"agent": "claude"}},
                     "models": {MODEL: {"id": MODEL}}, "agents": {"claude": {
-                    "bin": runtime["claude"], "prompt": "stdin", "dialect": "anthropic", "model_flag": "--model",
-                    "args": ["-p", "--bare", "--tools", "Bash,Read,Write", "--dangerously-skip-permissions",
+                    # agent_events runs runtime["claude"] with stream-json and keeps every tool event per call,
+                    # so the run records which knowledge files agents opened; the runtime still gets plain text.
+                    "bin": sys.executable, "prompt": "stdin", "dialect": "anthropic", "model_flag": "--model",
+                    "args": [str(AGENT_EVENTS), "-p", "--bare", "--tools", "Bash,Read,Write", "--dangerously-skip-permissions",
                              "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
                              "--setting-sources", "", "--disable-slash-commands", "--no-session-persistence",
                              "--effort", EFFORT]}}}
@@ -89,7 +98,9 @@ class OnlineExecutor:
                    "--agent-timeout-ms", str(runtime.get("timeout_seconds", 3600) * 1000)]
         process = run_process(command, directory, directory / "runtime",
                               timeout=runtime.get("timeout_seconds", 3600) + 30,
-                              environment={"GEAK_SCHEMA_RETRIES": "0", "GEAK_KB_READ_ONLY": "1"},
+                              environment={"GEAK_SCHEMA_RETRIES": "0", "GEAK_KB_READ_ONLY": "1",
+                                           "RSI_CLAUDE_BIN": runtime["claude"],
+                                           "RSI_EVENTS_DIR": str(directory / "capture/events")},
                               deadline=self.evaluator.deadline)
         after = snapshot(parent["workspace"], self.config["source_paths"], directory / "capture")
         if after["fingerprint"] != before["fingerprint"]:
@@ -154,7 +165,11 @@ class OnlineExecutor:
                    "stdout": (directory / "runtime/stdout.log").read_text(errors="replace"),
                    "stderr": (directory / "runtime/stderr.log").read_text(errors="replace"),
                    "evidence": [asdict(item) for item in audit]}
-        return {"id": parent["request_id"], "workspace": str(retained), "measurement": measurement,
+        results = directory / "result.json"
+        step = Step(parent["request_id"], parent["id"], result, measurement,
+                    candidate_source["fingerprint"] if candidate_source else None, request,
+                    reference(results) if results.exists() else None, str(directory / "capture/events"))
+        return {"id": parent["request_id"], "workspace": str(retained), "measurement": measurement, "step": step,
                 "state": SourceState(retained_source["fingerprint"], (disposition,)),
                 "candidate_source": candidate_source["fingerprint"] if candidate_source else None,
                 "input_evidence": (request, process["evidence"], *audit), "details": details}
@@ -279,7 +294,7 @@ def explore(config_path, wiki, output, *, executor_factory=OnlineExecutor, revis
     rollout = Rollout(state, generation, root, budget)
     workspaces = {"root": root_workspace}
     contexts = {"root": initial_context}
-    positions, branches = {}, []
+    positions, branches, steps = {}, [], []
     while not rollout.stop:
         if time.monotonic() >= deadline:
             rollout.stop = "wallclock_limit"
@@ -300,6 +315,7 @@ def explore(config_path, wiki, output, *, executor_factory=OnlineExecutor, revis
             futures = [workers.submit(executor.execute, request, generation) for request in requests]
             outcomes = [future.result() for future in futures]
         outcomes = [executor.finish(outcome) for outcome in outcomes]
+        steps.extend(outcome["step"] for outcome in outcomes)
         for item in frozen.values():
             verify(item)
         nodes = []
@@ -331,6 +347,13 @@ def explore(config_path, wiki, output, *, executor_factory=OnlineExecutor, revis
         rollout.step(action, tuple(nodes))
     trace = rollout.trace(world_id, config["kernel"], "online")
     write_json(destination / "trace.json", trace)
+    knowledge_trees = kernelwiki_trees(wiki, reference_revision)
+    online = online_records(tree_id=world_id, kernel=config["kernel"], task=state, contract=baseline.contract,
+                            root_source=root.state.fingerprint, baseline=baseline, steps=steps, stop=rollout.stop,
+                            view_root=destination / "frozen_knowledge", knowledge=knowledge_index(knowledge_trees),
+                            generation=Generation(MODEL, EFFORT))
+    fold([*knowledge_trees, *online])   # the run's tree must satisfy every trace invariant before it is kept
+    write_jsonl(destination / "online-trace.jsonl", [to_wire(record) for record in online])
     if branches:
         world = DiscoveryWorld(world_id, config["kernel"], "online", state, generation,
                                root, tuple(tuple(branch) for branch in branches))
@@ -343,8 +366,8 @@ def explore(config_path, wiki, output, *, executor_factory=OnlineExecutor, revis
               "agent_calls": len(list((destination / "generations").glob("*/capture/agent-*-input.json"))),
               "knowledge_changed": False, "worlds": 1 if branches else 0,
               "artifacts": {name: reference(destination / name).sha256 for name in
-                            (("manifest.json", "trace.json", "policy.json", "worlds.jsonl") if branches else
-                             ("manifest.json", "trace.json", "policy.json"))}}
+                            (("manifest.json", "trace.json", "policy.json", "online-trace.jsonl", "worlds.jsonl")
+                             if branches else ("manifest.json", "trace.json", "policy.json", "online-trace.jsonl"))}}
     write_json(destination / "result.json", result)
     return result
 

@@ -10,7 +10,7 @@ from types import SimpleNamespace
 import pytest
 import yaml
 from kernel_workflow.rsi.discovery import Attempt, DiscoveryWorld
-from kernel_workflow.rsi.evidence import reference, snapshot, write_json, write_jsonl
+from kernel_workflow.rsi.evidence import read_jsonl, reference, snapshot, write_json, write_jsonl
 from kernel_workflow.rsi.harness import Policy
 from kernel_workflow.rsi.loop.evaluator import FixedEvaluator
 from kernel_workflow.rsi.loop.online import execution_environment, explore
@@ -18,8 +18,11 @@ from kernel_workflow.rsi.replay_buffer.build import freeze
 from kernel_workflow.rsi.replay_buffer.simulator import replay
 from kernel_workflow.rsi.replay_buffer.store import open_buffer
 from kernel_workflow.rsi.reverse_engineering.sources.capture import load_online
+from kernel_workflow.rsi.reverse_engineering.sources.kernelwiki import kernelwiki_trees, knowledge_index
 from kernel_workflow.rsi.reverse_engineering.trace import trace
 from kernel_workflow.rsi.runtime import run_process
+from kernel_workflow.rsi.trace.records import from_wire
+from kernel_workflow.rsi.trace.tree import fold
 from kernelwiki.knowledge import KnowledgeError
 
 REPO = Path(__file__).resolve().parents[4]
@@ -59,16 +62,30 @@ import re
 import shutil
 import sys
 prompt = sys.stdin.read()
+root = (re.search(r"^- KERNEL_KNOWLEDGE_DIR: (.*)$", prompt, re.M) or [None, ""])[1]
+tools = []
 if "PHASE=plan_round" in prompt:
-    root = re.search(r"^- KERNEL_KNOWLEDGE_DIR: (.*)$", prompt, re.M)[1]
-    print(json.dumps({"stop": False, "directions": [{"id": "one", "title": "Fixture", "specialty": "compute", "prompt": "Fixture",
-                      "kk_refs": [root + "/operators/gemm/backends/triton.md", "operators/softmax/tuning.md"]}]}))
+    text = json.dumps({"stop": False, "directions": [{"id": "one", "title": "Fixture", "specialty": "compute", "prompt": "Fixture",
+                       "kk_refs": [root + "/operators/gemm/backends/triton.md", "operators/softmax/tuning.md"]}]})
 else:
     parent = re.search(r"^- CANONICAL: (.*)$", prompt, re.M)[1]
     workspace = re.search(r"^- KERNEL_PATH: (.*)$", prompt, re.M)[1]
     shutil.copytree(parent, workspace)
     Path(workspace, "kernel_src/k.txt").write_text("1")
-    print(json.dumps({"status": "improved", "speedup_geomean": 999, "measurement_valid": True}))
+    text = json.dumps({"status": "improved", "speedup_geomean": 999, "measurement_valid": True})
+    # The engineer opens one KernelWiki page, fails to open a missing one, and cats a GEAK-only page.
+    tools = [("Read", {"file_path": root + "/operators/gemm/backends/triton.md"}, False),
+             ("Read", {"file_path": root + "/operators/gemm/missing.md"}, True),
+             ("Bash", {"command": "cat " + root + "/operators/softmax/tuning.md | head"}, False)]
+if "--output-format" not in sys.argv:
+    print(text)
+    sys.exit(0)
+for number, (name, given, failed) in enumerate(tools):
+    print(json.dumps({"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "id": f"t{number}", "name": name, "input": given}]}}))
+    print(json.dumps({"type": "user", "message": {"content": [
+        {"type": "tool_result", "tool_use_id": f"t{number}", "is_error": failed, "content": "fixture"}]}}))
+print(json.dumps({"type": "result", "subtype": "success", "is_error": False, "result": text}))
 ''')
     worker.chmod(0o755)
     config = {"kernel": "fixture", "workspace": str(source), "state": {"operator": "gemm"},
@@ -230,6 +247,17 @@ def test_failed_candidate_continuation_online_freeze_replay(online_config, tmp_p
         ("operators/gemm/backends/triton.md", "knowledge/operator/gemm/backend/triton.md"),
         ("operators/softmax/tuning.md", None)]
     assert {use["commit"] for use in observation["knowledge_uses"]} == {result["reference_revision"]}
+    # The run's schema-4 tree carries both what plans pointed to and what engineers actually opened.
+    records = [from_wire(value) for value in read_jsonl(tmp_path / "online/online-trace.jsonl")]
+    forest = fold([*kernelwiki_trees(wiki, result["reference_revision"]), *records])
+    view = forest.trees[world.id]
+    first = view.nodes[f"{world.id}/node-1/0"]
+    page = knowledge_index(kernelwiki_trees(wiki, result["reference_revision"]))["knowledge/operator/gemm/backend/triton.md"]
+    assert sorted((use.target, use.role) for use in first.uses) == [(page, "pointed"), (page, "read")]
+    assert {item.gap.reasons[:2] for item in view.gaps if item.subject == first.id} == {
+        ("pointed", "operators/softmax/tuning.md"), ("read", "operators/softmax/tuning.md")}
+    assert view.tree.facets["geak"]["knowledge_identity"].startswith("observed")
+    assert view.outcome(first.id).status == "failed" and view.outcome(f"{world.id}/node-2/0").status == "qualified"
     args = json.loads((tmp_path / "online/generations/node-3/args.json").read_text())
     assert args["rsi_context"]["KK_LANGUAGE"] == "triton"
     assert json.loads(json.dumps(replay(world, Policy(), 3))) == json.loads(json.dumps(result["trace"]))
@@ -248,6 +276,11 @@ def test_failed_candidate_continuation_online_freeze_replay(online_config, tmp_p
     assert frozen_child.parent_source == failed.state.fingerprint
     assert frozen_child.parent_attempt_id == failed.attempt_id
     assert worlds == (world,)
+    # The online tree enters the buffer on the KernelWiki projection of the commit the run read.
+    frozen = open_buffer(tmp_path / "next-pool")
+    assert [tree.id for tree in frozen.trees] == [world.id]
+    assert frozen.manifest["kernelwiki"]["commit"] == result["reference_revision"]
+    assert frozen.manifest["knowledge_coverage"]["resolved"] >= 2
 
 
 def test_archived_online_inputs_survive_later_config_edits(online_config, tmp_path):

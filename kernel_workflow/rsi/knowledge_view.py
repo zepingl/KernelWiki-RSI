@@ -38,6 +38,8 @@ RULES = (
 UNMAPPED = "kernelwiki/"            # KernelWiki files no rule covers stay reachable under their own path
 POLICY = ("knowledge/policy.yaml", "knowledge/general/rsi/")   # the KnowledgePolicy is not reference knowledge
 LEARNED = "/learned_knowledge/"
+IMPORT_PREFIXES = ("kernel-", "e2e-", "")   # KernelWiki imported GEAK cards as kernel-<slug> / e2e-<slug>
+ALIASED = re.compile(r"knowledge/operator/(?P<op>[^/]+)/backend/(?P<backend>[^/]+)_aiter\.md")
 
 
 def _apply(path, source, target):
@@ -68,10 +70,13 @@ def to_view(kernelwiki_path):
 
 def resolve(ref, documents):
     """KernelWiki path of a historical GEAK read, or None. `documents` are the KernelWiki paths alive at the
-    pinned commit. A bare learned-card slug names the one learned card with that file name."""
+    pinned commit. A bare learned-card slug names the one learned card it was imported as."""
     if "/" not in ref:
-        found = [path for path in documents if path.endswith(LEARNED + ref)]
-        return found[0] if len(found) == 1 else None
+        for prefix in IMPORT_PREFIXES:
+            found = [path for path in documents if path.endswith(LEARNED + prefix + ref)]
+            if found:
+                return found[0] if len(found) == 1 else None
+        return None
     path = to_kernelwiki(ref)
     return path if path in documents else None
 
@@ -88,19 +93,26 @@ def materialize(repo, commit, destination):
     archive = subprocess.run(["git", "-C", str(repo), "archive", "--format=tar", commit, "--", "knowledge"],
                              check=True, capture_output=True).stdout
     destination.mkdir(parents=True, exist_ok=False)
-    files = {}
     with tarfile.open(fileobj=io.BytesIO(archive)) as bundle:
-        for member in bundle.getmembers():
-            if not member.isfile() or member.name.startswith(POLICY):
-                continue
-            view = to_view(member.name)
-            if view in files:
-                raise KnowledgeError(f"two KernelWiki files map to one view path: {view}")
-            files[view] = member.name
-            target = destination / view
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(bundle.extractfile(member).read())
-    manifest = {"schema_version": 1, "repo": str(repo.resolve()), "commit": commit, "files": dict(sorted(files.items()))}
+        documents = {member.name: bundle.extractfile(member).read() for member in bundle.getmembers()
+                     if member.isfile() and not member.name.startswith(POLICY)}
+    shown = {to_view(path): path for path in documents}
+    if len(shown) != len(documents):
+        raise KnowledgeError("two KernelWiki files map to one view path")
+    # Agents are prompted for operators/<op>/backends/<lang>.md. KernelWiki keeps the AITER snapshot of a backend
+    # as <lang>_aiter.md; when no <lang>.md exists, the conventional path shows that document too.
+    aliases = {}
+    for path in documents:
+        found = ALIASED.fullmatch(path)
+        if found and f"knowledge/operator/{found['op']}/backend/{found['backend']}.md" not in documents:
+            aliases[f"operators/{found['op']}/backends/{found['backend']}.md"] = path
+    files = {**shown, **aliases}
+    for view, path in files.items():
+        target = destination / view
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(documents[path])
+    manifest = {"schema_version": 1, "repo": str(repo.resolve()), "commit": commit, "files": dict(sorted(files.items())),
+                "aliases": dict(sorted(aliases.items()))}
     (destination / "manifest.json").write_text(json.dumps(manifest, indent=1) + "\n")
     return manifest
 
@@ -108,17 +120,66 @@ def materialize(repo, commit, destination):
 def view_uses(generation_result, view_root):
     """The KernelWiki documents a generation's plan pointed to, named through the view manifest it ran on.
     A pointer outside the view (or a directory) stays unresolved and is reported as such."""
-    root = Path(view_root)
-    files = json.loads((root / "manifest.json").read_text())["files"]
-    commit = json.loads((root / "manifest.json").read_text())["commit"]
+    manifest = json.loads((Path(view_root) / "manifest.json").read_text())
     directions = ((generation_result or {}).get("plan") or {}).get("directions") or []
     uses = []
     for direction in directions:
         for ref in direction.get("kk_refs") or []:
-            path = str(ref)
-            for prefix in (str(root.resolve()) + "/", str(root) + "/", "perf_knowledge/"):
-                if prefix in path:
-                    path = path.split(prefix, 1)[1]
-            uses.append({"role": "pointed", "ref": ref, "view_path": path, "kernelwiki": files.get(path),
-                         "commit": commit})
+            path = view_path(ref, view_root)
+            uses.append({"role": "pointed", "ref": ref, "view_path": path, "kernelwiki": manifest["files"].get(path),
+                         "commit": manifest["commit"]})
+    return uses
+
+
+def view_path(ref, view_root):
+    """A reference as written by an agent (absolute under the view, or perf_knowledge-relative) -> view path."""
+    path, root = str(ref), Path(view_root)
+    for prefix in (str(root.resolve()) + "/", str(root) + "/", "perf_knowledge/"):
+        if prefix in path:
+            path = path.split(prefix, 1)[1]
+    return path
+
+
+def read_uses(events_dir, view_root):
+    """Knowledge files agents actually opened, from agent_events stream-json logs: Read and single-file Grep paths,
+    and literal view paths in Bash commands, counted only when the tool returned without error. Each names its
+    document through the view manifest; a path outside the manifest (a directory, a missing file) stays unresolved."""
+    manifest = json.loads((Path(view_root) / "manifest.json").read_text())
+    roots = sorted({str(Path(view_root).resolve()), str(view_root)}, key=len, reverse=True)
+    literal = re.compile("(?:" + "|".join(re.escape(root) for root in roots) + r")/[^\s'\"`;|&<>()]+")
+    uses = []
+    for log in sorted(Path(events_dir).glob("*.jsonl")) if Path(events_dir).is_dir() else ():
+        lines = log.read_text().splitlines()
+        phase = json.loads(lines[0]).get("phase") if lines else None
+        calls, failed = {}, set()
+        for number, line in enumerate(lines[1:], 2):
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            for block in (event.get("message") or {}).get("content") or () if isinstance(event, dict) else ():
+                if not isinstance(block, dict):
+                    continue
+                if block.get("type") == "tool_use":
+                    calls[block.get("id")] = (block.get("name"), block.get("input") or {}, number)
+                elif block.get("type") == "tool_result" and block.get("is_error"):
+                    failed.add(block.get("tool_use_id"))
+        for call_id, (tool, given, number) in calls.items():
+            if call_id in failed:
+                continue
+            if tool == "Read":
+                paths = [given.get("file_path", "")]
+            elif tool == "Grep":
+                paths = [given.get("path", "")]
+            elif tool == "Bash":
+                paths = literal.findall(given.get("command", ""))
+            else:
+                continue
+            for path in dict.fromkeys(paths):
+                if not any(str(path).startswith(root + "/") for root in roots):
+                    continue
+                view = view_path(path, view_root)
+                uses.append({"role": "read", "phase": phase, "tool": tool, "view_path": view,
+                             "kernelwiki": manifest["files"].get(view), "commit": manifest["commit"],
+                             "events": str(log), "line": number})
     return uses

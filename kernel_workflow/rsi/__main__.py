@@ -113,8 +113,13 @@ def main(argv=None):
     publisher.add_argument("--wiki", required=True)
     migration = commands.add_parser("migrate", help="replay-evidenced KernelWiki policy migration with human approval")
     steps = migration.add_subparsers(dest="step", required=True)
-    asked = steps.add_parser("request", help="reproduce a pooled episode round and write an unsigned approval")
-    asked.add_argument("--evolve", required=True)
+    proposed = steps.add_parser("propose-ingest", help="propose GEAK learned cards KernelWiki does not hold")
+    proposed.add_argument("--geak", required=True, help="GEAK checkout holding the pinned commit")
+    proposed.add_argument("--commit", required=True)
+    proposed.add_argument("--wiki", required=True)
+    proposed.add_argument("--output", required=True)
+    asked = steps.add_parser("request", help="reproduce a change's gate and write an unsigned approval")
+    asked.add_argument("--source", required=True, help="a pooled episode evolve round, or a knowledge proposal")
     asked.add_argument("--wiki", required=True)
     asked.add_argument("--output", required=True)
     signed = steps.add_parser("sign", help="record a person's decision on exactly this request")
@@ -227,7 +232,9 @@ def main(argv=None):
             result = {key: value for key, value in result.items() if key != "artifacts"}
         elif args.command == "migrate":
             from .loop import migration
-            result = {"request": lambda: migration.request(args.evolve, args.wiki, args.output),
+            from .loop import knowledge_change
+            result = {"propose-ingest": lambda: knowledge_change.propose(args.geak, args.commit, args.wiki, args.output),
+                      "request": lambda: migration.request(args.source, args.wiki, args.output),
                       "sign": lambda: migration.sign(args.request, args.by, "reject" if args.reject else "approve"),
                       "publish": lambda: migration.publish(args.request, args.wiki),
                       "switch": lambda: migration.switch(args.request, args.wiki, args.to)}[args.step]()

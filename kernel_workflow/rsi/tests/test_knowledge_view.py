@@ -23,12 +23,17 @@ def test_one_rule_table_maps_both_ways(view, kernelwiki):
 
 def test_history_resolves_only_live_documents_and_unique_learned_slugs():
     documents = {"knowledge/operator/dense_gemm/tuning.md", "knowledge/operator/x/learned_knowledge/fast.md",
-                 "knowledge/general/learned_knowledge/dup.md", "knowledge/operator/y/learned_knowledge/dup.md"}
+                 "knowledge/general/learned_knowledge/dup.md", "knowledge/operator/y/learned_knowledge/dup.md",
+                 "knowledge/operator/z/learned_knowledge/kernel-imported.md",
+                 "knowledge/general/learned_knowledge/e2e-system.md"}
     assert resolve("operators/dense_gemm/tuning.md", documents) == "knowledge/operator/dense_gemm/tuning.md"
     assert resolve("operators/softmax/tuning.md", documents) is None          # GEAK-only operator
     assert resolve("languages/gluon/", documents) is None                      # a directory is not a document
     assert resolve("fast.md", documents) == "knowledge/operator/x/learned_knowledge/fast.md"
     assert resolve("dup.md", documents) is None                                # ambiguous slug stays unresolved
+    # KernelWiki imported GEAK's learned cards as kernel-<slug> and e2e-<slug>.
+    assert resolve("imported.md", documents) == "knowledge/operator/z/learned_knowledge/kernel-imported.md"
+    assert resolve("system.md", documents) == "knowledge/general/learned_knowledge/e2e-system.md"
 
 
 def git(repo, *args):
@@ -39,6 +44,8 @@ def git(repo, *args):
 def test_materialized_view_is_a_pinned_commit_with_a_complete_manifest(tmp_path):
     repo = tmp_path / "wiki"
     files = {"knowledge/operator/gemm/backend/triton.md": "triton v1", "knowledge/operator/gemm/README.md": "gemm",
+             "knowledge/operator/gemm/backend/gluon_aiter.md": "gluon from aiter",
+             "knowledge/operator/gemm/backend/triton_aiter.md": "triton from aiter",
              "knowledge/general/expert_recipes/index.yaml": "skills: []", "knowledge/policy.yaml": "rule_ids: []",
              "knowledge/general/rsi/rule.md": "policy rule card"}
     for name, text in files.items():
@@ -51,9 +58,16 @@ def test_materialized_view_is_a_pinned_commit_with_a_complete_manifest(tmp_path)
     (repo / "knowledge/operator/gemm/backend/triton.md").write_text("triton v2 (uncommitted)")
     manifest = materialize(repo, "HEAD", tmp_path / "view")
     assert manifest["commit"] == pinned
-    assert manifest["files"] == {"expert_skills/index.yaml": "knowledge/general/expert_recipes/index.yaml",
-                                 "operators/gemm/backends/triton.md": "knowledge/operator/gemm/backend/triton.md",
-                                 "operators/gemm/overview.md": "knowledge/operator/gemm/README.md"}
+    assert manifest["files"] == {
+        "expert_skills/index.yaml": "knowledge/general/expert_recipes/index.yaml",
+        "operators/gemm/backends/gluon.md": "knowledge/operator/gemm/backend/gluon_aiter.md",
+        "operators/gemm/backends/gluon_aiter.md": "knowledge/operator/gemm/backend/gluon_aiter.md",
+        "operators/gemm/backends/triton.md": "knowledge/operator/gemm/backend/triton.md",
+        "operators/gemm/backends/triton_aiter.md": "knowledge/operator/gemm/backend/triton_aiter.md",
+        "operators/gemm/overview.md": "knowledge/operator/gemm/README.md"}
+    # The conventional <lang>.md shows the AITER page only where KernelWiki has no <lang>.md of its own.
+    assert manifest["aliases"] == {"operators/gemm/backends/gluon.md": "knowledge/operator/gemm/backend/gluon_aiter.md"}
+    assert (tmp_path / "view/operators/gemm/backends/gluon.md").read_text() == "gluon from aiter"
     assert (tmp_path / "view/operators/gemm/backends/triton.md").read_text() == "triton v1"
     assert json.loads((tmp_path / "view/manifest.json").read_text()) == manifest
     assert git(repo, "status", "--porcelain") == "M knowledge/operator/gemm/backend/triton.md"

@@ -1,10 +1,11 @@
-"""Replay-evidenced KernelWiki migration: request, human approval, publish, rollback and restore.
+"""Evidence-gated KernelWiki migration: request, human approval, publish, rollback and restore.
 
-The inner loop selects a policy on frozen replay evidence. A migration request reproduces that gate and lays
-out exactly what would change; a person signs it; publication reproduces the gate again, moves KernelWiki with
-compare-and-swap, commits the managed `knowledge/` files to git and appends the gate result to the policy's
-knowledge tree. Rollback and restore move between the two revisions of one publication, each as a commit.
-This path never claims online improvement: fresh holdout and paired online gates stay false.
+A change is either a KnowledgePolicy an inner round selected on frozen replay evidence, or knowledge pages
+proposed from a pinned source (knowledge_change). A request reproduces the change's gate and lays out exactly what
+would move; a person signs it; publication reproduces the gate again, moves KernelWiki with compare-and-swap,
+commits the managed `knowledge/` files to git and appends the gate result to each moved knowledge version.
+Rollback and restore move between the two revisions of one publication, each as a commit. Nothing here claims
+online improvement: fresh holdout and paired online gates stay false.
 """
 
 from __future__ import annotations
@@ -13,7 +14,7 @@ import hashlib
 import os
 import subprocess
 import time
-from dataclasses import asdict
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
 from kernelwiki import KnowledgeClient
@@ -26,16 +27,19 @@ from ..replay_buffer.cohorts import cohorts
 from ..replay_buffer.evaluate import evaluate, qualifies
 from ..replay_buffer.objective import ReplayObjective
 from ..replay_buffer.store import open_buffer
-from ..reverse_engineering.sources.kernelwiki import kernelwiki_trees
+from ..reverse_engineering.sources.kernelwiki import kernelwiki_trees, knowledge_index
 from ..trace.records import Decide, Measure, from_wire, to_wire
 from ..trace.tree import fold
 
+from . import knowledge_change
+
 SCOPE = "kernelwiki-policy-migration"
-POLICY_TREE = "kernelwiki/policy"
-POLICY_NODE = "kernelwiki:knowledge/policy.yaml@{}"
 LIMITS = ["Offline replay on recorded episodes only: no fresh holdout and no paired online gate were run.",
           "Each round is scored where history actually was; the policy cannot change later states it would reach.",
           "No GEAK lane reads a schema-2 policy yet; the parent scheduler refuses it explicitly."]
+INGEST_LIMITS = ["Adds knowledge GEAK already held; nothing was newly measured.",
+                 "Placed under general/learned_knowledge because KernelWiki has no operator page for these kernel classes.",
+                 "No online gate: whether agents use these cards well is measured by later runs."]
 
 
 def git(wiki, *args):
@@ -80,12 +84,38 @@ def reproduce(evolve_dir, wiki):
     return snapshot, incumbent, candidate, before, after, evidence
 
 
-def request(evolve_dir, wiki, output):
-    """Write the migration request a person reviews, and an unsigned approval bound to it."""
-    wiki = Path(wiki).resolve()
-    snapshot, incumbent, candidate, before, after, evidence = reproduce(evolve_dir, wiki)
-    destination = Path(output).resolve()
-    destination.mkdir(parents=True, exist_ok=False)
+@dataclass(frozen=True)
+class Change:
+    """One reproducible KernelWiki change and the facts a person signs."""
+    kind: str
+    source: Path
+    snapshot: object
+    update: KnowledgeUpdate          # its evidence excludes the request and the approval
+    paths: tuple[str, ...]           # the KernelWiki files it moves
+    gate: str                        # measurer recorded on each version it creates
+    summary: dict
+    title: str
+    limits: tuple[str, ...]
+
+
+def change(source, wiki):
+    source = Path(source).resolve()
+    if (source / "proposal.json").exists():
+        snapshot, pages, evidence = knowledge_change.reproduce(source, wiki)
+        value = read_json(source / "proposal.json")
+        update = KnowledgeUpdate(snapshot.policy, (), {"status": "evidence_update", "kind": value["kind"],
+                                                       "gates": {"reproduced_from_pinned_source": True,
+                                                                 "human_approval": True, "online": False}},
+                                 tuple(evidence), pages)
+        summary = {"source_repository": value["source"],
+                   "changes": [{"path": item["path"], "change": "added", "slug": item["slug"],
+                                "kernel_class": item["kernel_class"]} for item in value["files"]],
+                   "gate": {"rule": "each page re-rendered from the pinned GEAK blob equals the proposal byte for byte; "
+                                    "no target exists in KernelWiki"},
+                   "rationale": value["rationale"]}
+        return Change(value["kind"], source, snapshot, update, tuple(path for path, _ in pages), "reproduce",
+                      summary, f"ingest {len(pages)} GEAK learned cards", tuple(INGEST_LIMITS))
+    snapshot, incumbent, candidate, before, after, evidence = reproduce(source, wiki)
     previous = {record.id: record for record in snapshot.records}
     changes = [{"id": record.id, "change": "added" if record.id not in previous else "revised",
                 "title": record.title, "policy_rule": asdict(record.policy_rule), "body": record.body,
@@ -93,21 +123,36 @@ def request(evolve_dir, wiki, output):
                for record in candidate.records if record.policy_rule and previous.get(record.id) != record]
     kernels = lambda result: {name: {"objective": row["objective"], "full_budget_quality": row["full_budget_quality"]}
                               for name, row in result["summary"]["kernels"].items()}
-    value = {"scope": SCOPE, "evolve": str(Path(evolve_dir).resolve()), "wiki": str(wiki),
-             "branch": git(wiki, "branch", "--show-current"),
-             "git_head": git(wiki, "rev-parse", "HEAD"), "expected_revision": snapshot.revision,
-             "policy": {"from": incumbent.knowledge.to_dict(), "to": candidate.knowledge.to_dict(),
-                        "policy_revision": candidate.revision},
-             "changes": changes,
-             "replay_gate": {"rule": "higher pooled Objective; pooled and per-kernel full-budget quality not lower; "
-                                     "every trace support-complete",
-                             "incumbent": {"objective": before["summary"]["objective"],
-                                           "full_budget_quality": before["summary"]["full_budget_quality"],
-                                           "kernels": kernels(before)},
-                             "candidate": {"objective": after["summary"]["objective"],
-                                           "full_budget_quality": after["summary"]["full_budget_quality"],
-                                           "kernels": kernels(after)}},
-             "evidence": [asdict(item) for item in evidence], "limits": LIMITS,
+    update = KnowledgeUpdate(candidate.knowledge, tuple(record for record in candidate.records if record.policy_rule),
+                             {"status": "replay_validated", "policy_revision": candidate.revision,
+                              "gates": {"pooled_replay": True, "agent_review": True, "human_approval": True,
+                                        "fresh_holdout": False, "paired_online": False}, "limits": LIMITS},
+                             tuple(evidence))
+    summary = {"policy": {"from": incumbent.knowledge.to_dict(), "to": candidate.knowledge.to_dict(),
+                          "policy_revision": candidate.revision},
+               "changes": changes,
+               "replay_gate": {"rule": "higher pooled Objective; pooled and per-kernel full-budget quality not lower; "
+                                       "every trace support-complete",
+                               "incumbent": {"objective": before["summary"]["objective"],
+                                             "full_budget_quality": before["summary"]["full_budget_quality"],
+                                             "kernels": kernels(before)},
+                               "candidate": {"objective": after["summary"]["objective"],
+                                             "full_budget_quality": after["summary"]["full_budget_quality"],
+                                             "kernels": kernels(after)}}}
+    return Change("policy", source, snapshot, update, ("knowledge/policy.yaml",), "replay_gate", summary,
+                  f"migrate KnowledgePolicy to {candidate.revision[:12]}", tuple(LIMITS))
+
+
+def request(source, wiki, output):
+    """Write the migration request a person reviews, and an unsigned approval bound to it."""
+    wiki = Path(wiki).resolve()
+    moved = change(source, wiki)
+    destination = Path(output).resolve()
+    destination.mkdir(parents=True, exist_ok=False)
+    value = {"scope": SCOPE, "kind": moved.kind, "source": str(moved.source), "wiki": str(wiki),
+             "branch": git(wiki, "branch", "--show-current"), "git_head": git(wiki, "rev-parse", "HEAD"),
+             "expected_revision": moved.snapshot.revision, **moved.summary,
+             "evidence": [asdict(item) for item in moved.update.evidence], "limits": list(moved.limits),
              "drill": "after publishing: roll back to expected_revision, then restore the published revision"}
     write_json(destination / "request.json", value)
     write_json(destination / "approval.json", {"scope": SCOPE, "request": asdict(reference(destination / "request.json")),
@@ -137,21 +182,31 @@ def _commit(wiki, message):
     return git(wiki, "rev-parse", "HEAD")
 
 
-def _policy_node(wiki, commit, prior_trace=()):
-    """The projected policy version at a commit, folded with every gate record already appended."""
+def _versions(wiki, commit, paths, prior=()):
+    """The projected live version of each moved file at a commit (None once deleted), checked against the file
+    on disk and folded with every gate record already appended."""
     records = kernelwiki_trees(wiki, commit)
-    node = POLICY_NODE.format(commit[:12])
-    state = hashlib.sha256((Path(wiki) / "knowledge/policy.yaml").read_bytes()).hexdigest()
-    forest = fold([*records, *prior_trace])
-    if forest.trees[POLICY_TREE].nodes[node].state != state:
-        raise KnowledgeError("projected policy version differs from the published file")
-    return records, node, state
+    live, forest = knowledge_index(records), fold([*records, *prior])
+    versions = {}
+    for path in paths:
+        on_disk = Path(wiki) / path
+        if not on_disk.exists():
+            if path in live:
+                raise KnowledgeError(f"{path} was removed but its version is still live in the projection")
+            versions[path] = None
+            continue
+        node = live[path]
+        tree = next(view for view in forest.trees.values() if node in view.nodes)
+        if tree.nodes[node].state != hashlib.sha256(on_disk.read_bytes()).hexdigest():
+            raise KnowledgeError(f"projected version of {path} differs from the published file")
+        versions[path] = (tree.id, tree.tree.contract, node)
+    return records, forest, versions
 
 
-def _gate(node, evidence, approval):
-    return [Measure(node, "kernelwiki:policy", "replay_gate", True, None, tuple(evidence)),
-            Decide(POLICY_TREE, node, "accepted",
-                   f"pooled replay gate reproduced; reviewer approved; human approval by {approval['approved_by']}")]
+def _gate(kind, gate, versions, evidence, approval):
+    return [record for version in versions.values() if version for record in (
+        Measure(version[2], version[1], gate, True, None, tuple(evidence)),
+        Decide(version[0], version[2], "accepted", f"{kind} gate reproduced; human approval by {approval['approved_by']}"))]
 
 
 def publish(request_dir, wiki):
@@ -164,29 +219,25 @@ def publish(request_dir, wiki):
         raise KnowledgeError("approval was signed for a different request")
     if approval["decision"] != "approve" or not approval["approved_by"] or str(wiki) != value["wiki"]:
         raise KnowledgeError("migration needs a signed approval for this KernelWiki checkout")
-    snapshot, _, candidate, _, _, evidence = reproduce(value["evolve"], wiki)
-    if snapshot.revision != value["expected_revision"] or \
-            [asdict(item) for item in evidence] != value["evidence"]:
+    moved = change(value["source"], wiki)
+    if moved.snapshot.revision != value["expected_revision"] or \
+            [asdict(item) for item in moved.update.evidence] != value["evidence"]:
         raise KnowledgeError("request no longer matches the reproduced gate")
     approvals = [reference(request_dir / "request.json"), reference(request_dir / "approval.json")]
-    update = KnowledgeUpdate(candidate.knowledge, tuple(record for record in candidate.records if record.policy_rule),
-                             {"status": "replay_validated", "policy_revision": candidate.revision,
-                              "gates": {"pooled_replay": True, "agent_review": True, "human_approval": True,
-                                        "fresh_holdout": False, "paired_online": False},
-                              "approved_by": approval["approved_by"], "limits": LIMITS},
-                             (*approvals, *evidence))
+    update = replace(moved.update, evidence=(*approvals, *moved.update.evidence),
+                     validation={**moved.update.validation, "approved_by": approval["approved_by"]})
     revision = KnowledgeClient(wiki).publish(update, expected_revision=value["expected_revision"])
-    commit = _commit(wiki, f"rsi: migrate KnowledgePolicy to {candidate.revision[:12]}\n\n"
-                           f"KnowledgeRevision: {revision}\nPrevious: {value['expected_revision']}\n"
+    commit = _commit(wiki, f"rsi: {moved.title}\n\nKnowledgeRevision: {revision}\nPrevious: {value['expected_revision']}\n"
                            f"Approved-by: {approval['approved_by']}\nRequest: {approvals[0].path}@{approvals[0].sha256}\n"
-                           f"Gates: pooled replay, agent review, human approval; no fresh holdout or online gate")
-    _, node, state = _policy_node(wiki, commit)
-    trace = _gate(node, [*approvals, *evidence], approval)
-    _policy_node(wiki, commit, trace)
+                           f"Gate: {moved.gate}; no fresh holdout or online gate")
+    _, _, versions = _versions(wiki, commit, moved.paths)
+    trace = _gate(moved.kind, moved.gate, versions, update.evidence, approval)
+    _versions(wiki, commit, moved.paths, trace)
     destination.mkdir()
     write_jsonl(destination / "trace.jsonl", [to_wire(record) for record in trace])
-    result = {"status": "published", "previous_revision": value["expected_revision"], "revision": revision,
-              "commit": commit, "policy_node": node, "policy_state": state, "approved_by": approval["approved_by"],
+    result = {"status": "published", "kind": moved.kind, "gate": moved.gate, "previous_revision": value["expected_revision"],
+              "revision": revision, "commit": commit, "approved_by": approval["approved_by"],
+              "versions": {path: version[2] for path, version in versions.items() if version},
               "trace": asdict(reference(destination / "trace.jsonl"))}
     write_json(destination / "result.json", result)
     return result
@@ -203,22 +254,26 @@ def switch(request_dir, wiki, to):
     prior = [from_wire(value) for path in traces for value in read_jsonl(path)]
     destination = request_dir / f"switch-{len(traces):02d}-{to}"
     destination.mkdir()
-    client = KnowledgeClient(wiki)
-    revision = client.rollback(target, expected_revision=expected)
-    commit = _commit(wiki, f"rsi: {'roll back' if to == 'previous' else 'restore'} KnowledgePolicy to {target[:12]}\n\n"
-                           f"KnowledgeRevision: {revision}\nPrevious: {expected}\n"
-                           f"Publication: {published['commit']}")
-    _, node, state = _policy_node(wiki, commit, prior)
+    revision = KnowledgeClient(wiki).rollback(target, expected_revision=expected)
+    commit = _commit(wiki, f"rsi: {'roll back' if to == 'previous' else 'restore'} {published['kind']} to {target[:12]}\n\n"
+                           f"KnowledgeRevision: {revision}\nPrevious: {expected}\nPublication: {published['commit']}")
+    paths = tuple(published["versions"])
+    _, forest, versions = _versions(wiki, commit, paths, prior)
     if to == "previous":
-        trace = [Decide(POLICY_TREE, published["policy_node"], "retired", f"rolled back in {commit[:12]}")]
+        retired = {item.node for view in forest.trees.values() for item in view.decisions if item.verdict == "retired"}
+        trace = [Decide(next(view.id for view in forest.trees.values() if node in view.nodes), node, "retired",
+                        f"rolled back in {commit[:12]}")
+                 for node in published["versions"].values() if node not in retired]
     else:
-        approval = read_json(request_dir / "approval.json")
-        evidence = [EvidenceRef.from_dict(item) for item in read_json(request_dir / "request.json")["evidence"]]
-        trace = _gate(node, [reference(request_dir / "request.json"), reference(request_dir / "approval.json"),
-                             *evidence], approval)
-    _policy_node(wiki, commit, [*prior, *trace])
+        # Restoring re-applies the signed revision; its gate evidence is the original request, approval and gate.
+        value, approval = read_json(request_dir / "request.json"), read_json(request_dir / "approval.json")
+        evidence = [reference(request_dir / "request.json"), reference(request_dir / "approval.json"),
+                    *(EvidenceRef.from_dict(item) for item in value["evidence"])]
+        trace = _gate(published["kind"], published["gate"], versions, evidence, approval)
+    _versions(wiki, commit, paths, [*prior, *trace])
     write_jsonl(destination / "trace.jsonl", [to_wire(record) for record in trace])
-    result = {"status": f"switched_to_{to}", "revision": revision, "commit": commit, "policy_node": node,
-              "policy_state": state, "trace": asdict(reference(destination / "trace.jsonl"))}
+    result = {"status": f"switched_to_{to}", "revision": revision, "commit": commit,
+              "versions": {path: version[2] if version else None for path, version in versions.items()},
+              "trace": asdict(reference(destination / "trace.jsonl"))}
     write_json(destination / "result.json", result)
     return result
