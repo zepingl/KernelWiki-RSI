@@ -264,7 +264,8 @@ class KnowledgeClient:
                     raise KnowledgeError("a verbatim page cannot carry or replace a policy rule")
                 files[name] = payload
             validate_policy(candidate.policy, tuple(records.values()))
-            files["knowledge/policy.yaml"] = yaml.safe_dump(candidate.policy.to_dict(), sort_keys=False).encode()
+            if candidate.policy != previous.policy:    # an unchanged policy keeps its bytes (no reformat churn)
+                files["knowledge/policy.yaml"] = yaml.safe_dump(candidate.policy.to_dict(), sort_keys=False).encode()
             files["validation.json"] = canonical(candidate.validation)
             evidence_manifest = []
             for item in candidate.evidence:

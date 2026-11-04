@@ -166,6 +166,7 @@ def test_verbatim_pages_are_added_published_and_rolled_back_without_touching_pol
     revision = client.publish(update, expected_revision=original.revision)
     assert (client.root / name).read_bytes() == card
     assert client.snapshot().policy == original.policy and dict(client.snapshot().files)[name] == card
+    assert (client.root / "knowledge/policy.yaml").read_text().startswith("schema_version: 1\n")   # not reformatted
     client.rollback(original.revision, expected_revision=revision)
     assert not (client.root / name).exists() and client.snapshot().revision == original.revision
 
