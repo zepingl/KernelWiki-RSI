@@ -83,6 +83,12 @@ class TreeView:
         chosen = scores[(len(scores) - 1) // 2]
         return Measurement("qualified", node.state, chosen.score, chosen.contract, chosen.evidence)
 
+    def gain(self, node_id):
+        """A produced node's score over its parent's, minus one; None unless both are qualified."""
+        outcome = self.outcome(node_id)
+        parent = self.outcome(self.expansion(self.nodes[node_id]).parents[0])
+        return outcome.primary_score / parent.primary_score - 1 if outcome.status == parent.status == "qualified" else None
+
     def grade(self, node_id):
         """E/A/T from design section 2.5, with the reasons that block the next grade."""
         return (_code_grade if self.tree.subject == CODE else _knowledge_grade)(self, self.nodes[node_id])
@@ -291,16 +297,12 @@ def knowledge_ledger(forest):
                 rows[use.target]["roles"]["planner:" + use.role] += 1
             siblings = [node for node in view.nodes.values() if node.expansion == expansion.id]
             outcomes = {node.id: view.outcome(node.id) for node in siblings}
-            parent = view.outcome(expansion.parents[0])
             for node in siblings:
                 for use in node.uses:
                     rows[use.target]["roles"][use.role] += 1
                 for target in {use.target for use in node.uses}:
-                    outcome = outcomes[node.id]
                     rows[target]["directions"].append({
-                        "node": node.id, "continued": bool(view.children(node.id)),
-                        "gain": outcome.primary_score / parent.primary_score - 1
-                        if outcome.status == parent.status == "qualified" else None})
+                        "node": node.id, "continued": bool(view.children(node.id)), "gain": view.gain(node.id)})
             for target in {use.target for node in siblings for use in node.uses}:
                 users = [node.id for node in siblings if target in {use.target for use in node.uses}]
                 others = [node.id for node in siblings if node.id not in users]

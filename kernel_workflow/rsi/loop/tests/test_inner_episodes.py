@@ -42,8 +42,6 @@ class WidthDeveloper:
             return {"ok": True}
         if role == "reviewer":
             return {"decision": "approve", "reasons": ["fixture"]}
-        if role == "curator":
-            return {"rationale": "no page evidence worth adding", "pages": []}
         assert payload["training"]["examples"][0]["steps"]
         return {"kind": "policy_update", "rationale": "Dispatching only the first planned direction keeps quality",
                 "policy": {"schema_version": 2, "rule_ids": ["narrow"], "top_k": 3, "workers": 2, "max_width": 8},
@@ -64,7 +62,7 @@ def test_episode_evolution_selects_a_cheaper_width_without_publishing(tmp_path):
     selected = json.loads((tmp_path / "out/selected-policy.json").read_text())
     assert selected["policy"]["schema_version"] == 2 and not result["published"]
     assert KnowledgeClient(wiki).snapshot().revision == before
-    assert agent.calls == ["preflight", "developer", "reviewer", "curator"]
+    assert agent.calls == ["preflight", "developer", "reviewer"]
 
 
 def test_no_primary_episode_blocks_agent_calls(tmp_path):

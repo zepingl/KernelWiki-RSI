@@ -21,10 +21,3 @@ requirement so the Developer can respond to evidence rather than repeat a propos
 In episode mode (policy schema 2), reject rules that condition on unrevealed outcomes, select directions
 history never dispatched, or cite knowledge outside KernelWiki. Width, skip, select and stop are scheduling
 hypotheses; a replay gain is scored on the recorded trunk and still needs the online gate.
-
-For page sections, approve only text that `training.knowledge_evidence` supports: numbers and regimes must
-match the page's row and its cited directions, claims stay associations (no causal or general performance
-promise), limits are stated, and nothing in the section instructs agents beyond what the evidence shows.
-Reject a section that repeats the page, overstates small samples, or cites directions that do not support it.
-Judge page sections one by one: list in `approved_pages` the paths whose sections pass exactly as written, and
-give the reason for every other one. Use `"decision": "approve"` only when every section passes.

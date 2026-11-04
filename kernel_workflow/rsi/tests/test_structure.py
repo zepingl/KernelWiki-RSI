@@ -3,6 +3,7 @@ from importlib.util import resolve_name
 from pathlib import Path
 
 from kernel_workflow.rsi.loop.inner import ROLES
+from kernel_workflow.rsi.loop.iterate import ROLES as WRITING_ROLES
 from kernel_workflow.rsi.reverse_engineering.analyst import ROLE
 from kernel_workflow.rsi.runtime import RuntimeAgent
 
@@ -74,9 +75,11 @@ def test_implementation_imports_have_no_architectural_cycle():
 
 
 def test_agent_schemas_are_owned_by_inner_loop_and_method_analyst():
-    assert set(ROLES) == {"preflight", "developer", "reviewer", "curator"}
-    assert {ROLES[name].instructions.parent.resolve() for name in ("developer", "reviewer", "curator")} == {
-        ROOT / "loop/roles"}
+    assert set(ROLES) == {"preflight", "developer", "reviewer"}
+    assert set(WRITING_ROLES) == {"writer", "knowledge_reviewer"}
+    assert {role.instructions.parent.resolve() for role in (ROLES["developer"], ROLES["reviewer"],
+                                                            *WRITING_ROLES.values())} == {ROOT / "loop/roles"}
+    assert not any(role.engineering for role in WRITING_ROLES.values())
     assert ROLE.instructions.resolve() == ROOT / "reverse_engineering/roles/analyst.md"
     assert ROLE.schema["properties"]["method_status"]["enum"][-1] == "unknown"
     assert RuntimeAgent.__module__ == "kernel_workflow.rsi.runtime"

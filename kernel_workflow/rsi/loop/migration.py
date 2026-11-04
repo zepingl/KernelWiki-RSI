@@ -37,12 +37,13 @@ SCOPE = "kernelwiki-policy-migration"
 LIMITS = ["Offline replay on recorded episodes only: no fresh holdout and no paired online gate were run.",
           "Each round is scored where history actually was; the policy cannot change later states it would reach.",
           "No GEAK lane reads a schema-2 policy yet; the parent scheduler refuses it explicitly."]
-KNOWLEDGE_GATES = {"ingest_learned": "reproduce", "amend_pages": "evidence_gate"}
-AMEND_LIMITS = ["Field evidence summarizes recorded GEAK runs (history read GEAK's copy of these pages); "
-                "it is an association, not causal attribution.",
-                "Text changes cannot be scored by replay: whether agents use the amended pages better is measured "
-                "by later online runs.",
-                "Reviewed by the inner-round reviewer agent; in iterate it is published without a person."]
+KNOWLEDGE_GATES = {"ingest_learned": "reproduce", "knowledge_iteration": "evidence_gate"}
+ITERATION_LIMITS = ["Page evidence summarizes recorded GEAK runs (history read GEAK's copy of these pages); "
+                    "it is an association, not causal attribution.",
+                    "Text changes cannot be scored by replay: whether agents do better with them is measured by a "
+                    "later online comparison of the old and new KernelWiki.",
+                    "A new card generalizes one recorded step on one kernel.",
+                    "Agent-written items were judged by the reviewer agent; iterate publishes them without a person."]
 INGEST_LIMITS = ["Adds knowledge GEAK already held; nothing was newly measured.",
                  "Placed under general/learned_knowledge because KernelWiki has no operator page for these kernel classes.",
                  "No online gate: whether agents use these cards well is measured by later runs."]
@@ -111,7 +112,7 @@ def change(source, wiki):
         value = read_json(source / "proposal.json")
         update = KnowledgeUpdate(snapshot.policy, (), {"status": "evidence_update", "kind": value["kind"],
                                                        "gates": {KNOWLEDGE_GATES[value["kind"]]: True,
-                                                                 "human_approval": True, "online": False}},
+                                                                 "signed_approval": True, "online": False}},
                                  tuple(evidence), pages)
         if value["kind"] == "ingest_learned":
             summary = {"source_repository": value["source"],
@@ -121,11 +122,18 @@ def change(source, wiki):
                                         "byte; no target exists in KernelWiki"}}
             title, limits = f"ingest {len(pages)} GEAK learned cards", INGEST_LIMITS
         else:
-            summary = {"changes": [{"path": item["path"], "change": "field evidence", "section": item["section"],
-                                    "citations": item["citations"]} for item in value["files"]],
-                       "gate": {"rule": "each page equals the version the round read plus one field-evidence block; "
-                                        "every citation is a recorded direction that used the page; reviewer approved"}}
-            title, limits = f"add field evidence to {len(pages)} KernelWiki pages", AMEND_LIMITS
+            changes = [{"path": path, "change": item["op"], "subject": item["subject"],
+                        "citations": (item["output"] or {}).get("citations"),
+                        "review": (item["review"] or {}).get("reasons")}
+                       for item in value["items"] for path in item["paths"]]
+            summary = {"pool": value["pool"], "changes": changes,
+                       "gate": {"rule": "each file re-renders from its recorded draft and the buffer's ledger; every "
+                                        "number is generated; every citation used the page; the reviewer approved "
+                                        "every agent-written item; cautions are generated from the numbers alone"}}
+            counts = {op: sum(item["op"] == op for item in value["items"]) for op in ("revise", "caution", "distill")}
+            title = (f"knowledge iteration: revise {counts['revise']} pages, caution {counts['caution']}, "
+                     f"distill {counts['distill']} cards")
+            limits = ITERATION_LIMITS
         return Change(value["kind"], source, snapshot, update, tuple(path for path, _ in pages),
                       KNOWLEDGE_GATES[value["kind"]], {**summary, "rationale": value["rationale"]}, title, tuple(limits))
     snapshot, incumbent, candidate, before, after, evidence = reproduce(source, wiki)

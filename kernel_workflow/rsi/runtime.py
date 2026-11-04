@@ -70,6 +70,7 @@ class FrozenExperimentChanged(KnowledgeError):
 class AgentRole:
     schema: dict
     instructions: Path | str
+    engineering: bool = True    # append the Five-Step Engineering references (roles that design or review code/policy)
 
 
 class RuntimeAgent:
@@ -92,7 +93,7 @@ class RuntimeAgent:
         directory.mkdir(parents=True, exist_ok=False)
         schema = spec.schema
         prompt = spec.instructions.read_text() if isinstance(spec.instructions, Path) else spec.instructions
-        if isinstance(spec.instructions, Path):
+        if isinstance(spec.instructions, Path) and spec.engineering:
             for relative in ("SKILL.md", "references/structural-design.md", "references/closed-loop-engineering.md"):
                 prompt += f"\n\n## Local engineering source: {relative}\n" + (self.skill_root / relative).read_text()
         prompt += "\n\n## Frozen experiment input\n" + canonical(payload).decode()
