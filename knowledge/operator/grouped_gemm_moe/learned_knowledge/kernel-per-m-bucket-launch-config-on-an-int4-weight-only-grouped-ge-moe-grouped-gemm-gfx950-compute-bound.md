@@ -26,6 +26,10 @@ verified_on: 2026-07-29
 roofline: compute-bound 0.26 -> compute-bound 0.98 of its own empirical roof
 origin_kernels: ['fused_moe_int4_w4a16']
 ---
+<!-- kernelwiki-rsi:caution -->
+> **Caution (KernelWiki-RSI):** in every paired contrast recorded for this page (-4.0%, -2.0%, -0.7%), directions that followed it scored below sibling directions of the same round that did not. This is an association from recorded GEAK runs, not a cause, and it was not validated online: check the page's premise against the current kernel before following it. Replay buffer: `/shared_nfs/zepingl/geak_audit/checks/kernelwiki_rsi_policy_v2_exp_20261029/pool-schema5-02`.
+<!-- /kernelwiki-rsi:caution -->
+
 # Per-M-bucket launch config on an int4 weight-only grouped GEMM
 - lever: When the kernel body is M-independent (cost dominated by int4 dequant per output tile), stop tuning one global launch config and pick a separate config per M bucket: tile M x N, BLOCK_K, group-size-M, num_warps, num_stages.
 - apply: Host/wrapper-only edit: bucket M at dispatch and select a per-bucket config dict; the compiled kernel source can stay byte-identical to the golden, which keeps parity risk near zero.
