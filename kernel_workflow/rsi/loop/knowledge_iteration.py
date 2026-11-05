@@ -32,6 +32,7 @@ CAUTION_PAIRS = 3          # a caution needs at least this many paired contrasts
 REVISE_PAIRS, REVISE_DIRECTIONS = 3, 10
 CITED = 8                  # directions shown to the writer for a page, and the most it may cite
 MIN_SIMILARITY = 0.5       # a revised body keeps at least half of the old one
+GROWTH = 2000              # a revised body adds at most this many characters: a few well-supported lessons
 REPORT_CHARS, DIFF_CHARS = 2500, 20000
 CARD_FIELDS = {"title", "slug", "operator", "key", "description", "type", "kernel_class", "regime", "keywords",
                "levers", "lever", "apply", "verify", "pitfall"}
@@ -183,6 +184,9 @@ def _revise(evidence, path, files, output):
     body = _plain(output["body"], "body", lines=10 ** 6)
     if body.startswith("---"):
         raise KnowledgeError("body must not carry front matter; code keeps the page's own")
+    if len(body) > len(old) + GROWTH:
+        raise KnowledgeError(f"body grows by {len(body) - len(old)} characters; keep only the best-supported "
+                             f"lessons (at most {GROWTH})")
     similarity = difflib.SequenceMatcher(None, old, body).ratio()
     if similarity < MIN_SIMILARITY:
         raise KnowledgeError(f"body keeps too little of the page (similarity {similarity:.2f} < {MIN_SIMILARITY})")

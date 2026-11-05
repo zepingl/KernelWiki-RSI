@@ -15,9 +15,11 @@ did not use it (`pairs`, `mean_contrast`, `min_contrast`, `max_contrast`). `dire
 negative and most positive scored directions.
 
 Rewrite the body so the next kernel engineer who reads it gets what these runs showed: keep advice that held,
-qualify advice that failed or did not matter in the recorded regimes (name the kernel and regime), and add a
-short concrete lesson the reports support. Keep the page's scope, structure and most of its text: code rejects
-a body that keeps less than half of the old one. Do not delete technical content the evidence does not
+qualify advice that failed or did not matter in the recorded regimes, and add the two or three lessons the
+reports support most clearly. Fewer, well-scoped claims beat many: state each for the kernel and shape it was
+measured on, and attribute explanations to the engineer when the report only offers them. Keep the page's
+scope, structure and most of its text: code rejects a body that keeps less than half of the old one or grows by
+more than 2000 characters. Do not delete technical content the evidence does not
 contradict. Write no number that is not in the page or the evidence, no performance promise, and associations
 rather than causes. Do not write an evidence list: give `citations`, 1 to 8 node ids from `directions` that
 support your edits, and code renders them with their numbers at the end of the page.

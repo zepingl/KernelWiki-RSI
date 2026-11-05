@@ -146,6 +146,8 @@ def test_a_rejected_draft_is_redrafted_once_and_then_dropped(loop, tmp_path):
 @pytest.mark.parametrize("op, draft, reason", [
     ("revise", {"rationale": "x", "body": "---\nkernelwiki: x\n---\nbody", "citations": ["a/e1/0"]}, "front matter"),
     ("revise", {"rationale": "x", "body": "Something else entirely.", "citations": ["a/e1/0"]}, "keeps too little"),
+    ("revise", {"rationale": "x", "body": ORIGINAL.removeprefix(FRONT) + "x" * 2001, "citations": ["a/e1/0"]},
+     "grows by"),
     ("revise", {"rationale": "x", "body": "# Tuning\nTry the tile sweep first. Then tune the launch grid.\n",
                 "citations": ["a/e1/1"]}, "directions that used"),
     ("revise", {"rationale": "x", "body": "# Tuning\nTry the tile sweep first. Then tune the launch grid.\n"
